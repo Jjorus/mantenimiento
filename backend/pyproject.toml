@@ -1,0 +1,22 @@
+[project]
+name = "mantenimiento-backend"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.115.*",
+  "uvicorn[standard]==0.30.*",
+  "sqlmodel==0.0.22",
+  "psycopg[binary]==3.2.*",
+  "alembic==1.13.*",
+  "python-multipart",
+  "python-jose[cryptography]==3.3.*",
+  "passlib[argon2]==1.7.*",
+  "redis==5.0.*",                 # se usará en Fase C, no molesta ahora
+  "pydantic-settings==2.4.*",
+  "slowapi==0.1.*",               # rate limit en Fase C
+  "pyotp==2.9.*"                  # MFA en Fase C
+]
+
+[tool.black]
+line-length = 100
+
