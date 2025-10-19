@@ -1,0 +1,29 @@
+@'
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Entornos/secretos
+.env
+.env.*
+*.sqlite3
+mantenimiento.db
+
+# Logs
+logs/
+*.log
+
+# IDE/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Docker/Deploy
+deploy/nginx/certs/
+deploy/traefik/acme.json
+'@ | Set-Content -Path .gitignore -Encoding utf8

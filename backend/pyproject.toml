@@ -11,12 +11,20 @@ dependencies = [
   "python-multipart",
   "python-jose[cryptography]==3.3.*",
   "passlib[argon2]==1.7.*",
-  "redis==5.0.*",                 # se usará en Fase C, no molesta ahora
+  "redis==5.0.*",
   "pydantic-settings==2.4.*",
-  "slowapi==0.1.*",               # rate limit en Fase C
-  "pyotp==2.9.*"                  # MFA en Fase C
+  "slowapi==0.1.*",
+  "pyotp==2.9.*"
 ]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []
 
 [tool.black]
 line-length = 100
+
 
