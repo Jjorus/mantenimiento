@@ -1,5 +1,5 @@
-# opcional: solo re-exporta para ergonomía
-from __future__ import annotations
+# __init__.py
+
 
 from .base import (
     SQLModel, metadata,

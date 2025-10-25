@@ -1,7 +1,8 @@
-from __future__ import annotations
+# backend/app/models/seccion.py
 from typing import Optional, TYPE_CHECKING
 
-from sqlmodel import SQLModel, Field, Relationship, Column
+from sqlmodel import SQLModel, Field, Relationship
+from sqlalchemy import Column 
 from sqlalchemy.dialects.postgresql import CITEXT  # requiere extensión citext
 
 if TYPE_CHECKING:
@@ -19,7 +20,7 @@ class Seccion(SQLModel, table=True):
     # Unicidad + índice case-insensitive con CITEXT (PostgreSQL)
     nombre: str = Field(
         description="Nombre único de la sección (case-insensitive)",
-        sa_column=Column(CITEXT(), unique=True, index=True, nullable=False),
+        sa_column=Column(CITEXT(), unique=True, nullable=False),
     )
 
     # Relaciones

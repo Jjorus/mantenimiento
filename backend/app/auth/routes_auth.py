@@ -25,12 +25,17 @@ def _now() -> datetime:
 def make_access_token(sub: str, role: str) -> tuple[str, int]:
     exp = _now() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
-        "iss": settings.ISSUER,
-        "aud": settings.AUDIENCE,
+        
         "sub": sub,
         "role": role,
         "exp": exp,
     }
+
+    if settings.ISSUER:
+        payload["iss"] = settings.ISSUER
+    if settings.AUDIENCE:
+        payload["aud"] = settings.AUDIENCE
+
     # SECRET_KEY es SecretStr: obtener str real
     key = settings.SECRET_KEY.get_secret_value()
     token = jwt.encode(payload, key, algorithm=settings.JWT_ALGORITHM)

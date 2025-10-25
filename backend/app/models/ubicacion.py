@@ -1,4 +1,4 @@
-from __future__ import annotations
+# ubicacion.py
 from typing import Optional, TYPE_CHECKING
 from sqlmodel import SQLModel, Field, Relationship, Column
 from sqlalchemy import Integer, ForeignKey
@@ -17,6 +17,6 @@ class Ubicacion(SQLModel, table=True):
         
         sa_column=Column(Integer, ForeignKey("seccion.id", ondelete="SET NULL"), nullable=True, index=True),
     )
-    seccion: "Seccion | None" = Relationship(back_populates="ubicaciones")
+    seccion: Optional["Seccion"] = Relationship(back_populates="ubicaciones")
 
     equipos: list["Equipo"] = Relationship(back_populates="ubicacion")

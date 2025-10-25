@@ -1,4 +1,5 @@
-from __future__ import annotations
+#base.py
+
 from sqlmodel import SQLModel
 
 metadata = SQLModel.metadata
@@ -11,4 +12,6 @@ from .incidencia import Incidencia  # noqa: F401
 from .reparacion import Reparacion  # noqa: F401
 from .movimiento import Movimiento  # noqa: F401
 from .usuario import Usuario  # noqa: F401
+
+
 __all__ = ["SQLModel", "metadata"]

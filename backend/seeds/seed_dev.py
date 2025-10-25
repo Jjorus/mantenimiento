@@ -1,13 +1,10 @@
-from __future__ import annotations
-
+# backend/seeds/seed_dev.py
 from sqlmodel import Session, select
-
 from app.core.db import engine
 from app.models.usuario import Usuario
 from app.models.ubicacion import Ubicacion
 from app.models.equipo import Equipo
 from app.core.security import hash_password
-
 
 def ensure_admin(session: Session) -> None:
     admin = session.exec(select(Usuario).where(Usuario.username == "admin")).first()
@@ -21,20 +18,19 @@ def ensure_admin(session: Session) -> None:
             )
         )
 
-
 def ensure_defaults(session: Session) -> None:
-    # Ubicaciones por defecto
+    # Ubicaciones por defecto (SIN 'tipo')
     has_ubis = session.exec(select(Ubicacion)).first()
     if not has_ubis:
         session.add_all(
             [
-                Ubicacion(nombre="Almacén Central", tipo="ALMACEN"),
-                Ubicacion(nombre="Lab Metrología", tipo="LAB"),
-                Ubicacion(nombre="OPERARIO: Juan Pérez", tipo="PERSONA"),
+                Ubicacion(nombre="Almacén Central"),
+                Ubicacion(nombre="Lab Metrología"),
+                Ubicacion(nombre="OPERARIO: Juan Pérez"),
             ]
         )
 
-    # Equipos por defecto (usa los campos reales del modelo)
+    # Equipos por defecto
     has_eqs = session.exec(select(Equipo)).first()
     if not has_eqs:
         session.add_all(
@@ -44,13 +40,11 @@ def ensure_defaults(session: Session) -> None:
             ]
         )
 
-
 def run() -> None:
     with Session(engine) as s:
         ensure_admin(s)
         ensure_defaults(s)
         s.commit()
-
 
 if __name__ == "__main__":
     run()
