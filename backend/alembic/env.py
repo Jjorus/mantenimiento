@@ -8,10 +8,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-
+from sqlmodel import SQLModel
 from logging.config import fileConfig
 from alembic import context
-from sqlmodel import SQLModel
+
 # Carga config de alembic.ini
 config = context.config
 if config.config_file_name is not None:

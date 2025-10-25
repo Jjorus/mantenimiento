@@ -1,20 +1,167 @@
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from jose import jwt, JWTError
+from pydantic import BaseModel, Field, StringConstraints
 from sqlmodel import Session, select
-from app.core.deps import get_db
-from app.core.security import verify_password, hash_password, make_access_token
+
+from app.core.config import settings
+from app.core.deps import get_db, current_user, require_role
+from app.core.security import hash_password, verify_password  # Argon2id
 from app.models.usuario import Usuario
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-class LoginIn(BaseModel):
-    username: str
-    password: str
 
-@router.post("/login")
+# =========================
+# Utilidades JWT (access)
+# =========================
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+def make_access_token(sub: str, role: str) -> tuple[str, int]:
+    exp = _now() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {
+        "iss": settings.ISSUER,
+        "aud": settings.AUDIENCE,
+        "sub": sub,
+        "role": role,
+        "exp": exp,
+    }
+    # SECRET_KEY es SecretStr: obtener str real
+    key = settings.SECRET_KEY.get_secret_value()
+    token = jwt.encode(payload, key, algorithm=settings.JWT_ALGORITHM)
+    return token, int(exp.timestamp())
+
+
+# =========================
+# Esquemas
+# =========================
+
+UsernameStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3)]
+PasswordStr = Annotated[str, StringConstraints(min_length=6)]
+RoleStr     = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3)]
+
+class LoginIn(BaseModel):
+    username: UsernameStr
+    password: PasswordStr
+
+class LoginOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    role: str
+    user_id: int
+    username: str
+    expires_at: int
+
+class MeOut(BaseModel):
+    id: int
+    username: str
+    role: str
+    active: bool
+
+class UserCreateIn(BaseModel):
+    username: UsernameStr
+    password: PasswordStr
+    role: RoleStr  # "ADMIN" | "MANTENIMIENTO" | "OPERARIO"
+    active: bool = True
+
+class UserPatchIn(BaseModel):
+    password: Optional[PasswordStr] = None
+    role: Optional[RoleStr] = None   # "ADMIN" | "MANTENIMIENTO" | "OPERARIO"
+    active: Optional[bool] = None
+
+class ChangePasswordIn(BaseModel):
+    current_password: PasswordStr
+    new_password:     PasswordStr
+
+
+# =========================
+# Endpoints
+# =========================
+
+@router.post("/login", response_model=LoginOut)
 def login(data: LoginIn, db: Session = Depends(get_db)):
     user = db.exec(select(Usuario).where(Usuario.username == data.username)).first()
-    if not user or not verify_password(data.password, user.password_hash) or not user.active:
-        raise HTTPException(401, "Credenciales inválidas")
-    token = make_access_token(str(user.id), user.role)
-    return {"access_token": token, "token_type": "bearer", "role": user.role}
+    if not user or not user.active or not verify_password(data.password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
+
+    token, exp_ts = make_access_token(str(user.id), user.role)
+    return LoginOut(
+        access_token=token,
+        role=user.role,
+        user_id=user.id,
+        username=user.username,
+        expires_at=exp_ts,
+    )
+
+@router.get("/me", response_model=MeOut)
+def me(user=Depends(current_user), db: Session = Depends(get_db)):
+    u = db.get(Usuario, int(user["id"]))
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return MeOut(id=u.id, username=u.username, role=u.role, active=u.active)
+
+@router.post("/users", status_code=201, dependencies=[Depends(require_role("ADMIN"))])
+def crear_usuario(data: UserCreateIn, db: Session = Depends(get_db)):
+    role = data.role.upper()
+    if role not in ("ADMIN", "MANTENIMIENTO", "OPERARIO"):
+        raise HTTPException(422, detail="Rol inválido")
+
+    exists = db.exec(select(Usuario).where(Usuario.username == data.username)).first()
+    if exists:
+        raise HTTPException(status_code=409, detail="Usuario ya existe")
+
+    user = Usuario(
+        username=data.username,
+        password_hash=hash_password(data.password),
+        role=role,
+        active=data.active,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "username": user.username, "role": user.role, "active": user.active}
+
+@router.get("/users", dependencies=[Depends(require_role("ADMIN"))])
+def listar_usuarios(db: Session = Depends(get_db)):
+    users = db.exec(select(Usuario)).all()
+    return [{"id": u.id, "username": u.username, "role": u.role, "active": u.active} for u in users]
+
+@router.patch("/users/{user_id}", dependencies=[Depends(require_role("ADMIN"))])
+def actualizar_usuario(user_id: int, data: UserPatchIn, db: Session = Depends(get_db)):
+    user = db.get(Usuario, user_id)
+    if not user:
+        raise HTTPException(404, detail="Usuario no encontrado")
+
+    if data.password is not None:
+        user.password_hash = hash_password(data.password)
+
+    if data.role is not None:
+        role = data.role.upper()
+        if role not in ("ADMIN", "MANTENIMIENTO", "OPERARIO"):
+            raise HTTPException(422, detail="Rol inválido")
+        user.role = role
+
+    if data.active is not None:
+        user.active = data.active
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "username": user.username, "role": user.role, "active": user.active}
+
+@router.post("/change-password")
+def change_password(payload: ChangePasswordIn, user=Depends(current_user), db: Session = Depends(get_db)):
+    u = db.get(Usuario, int(user["id"]))
+    if not u:
+        raise HTTPException(404, detail="Usuario no encontrado")
+    if not verify_password(payload.current_password, u.password_hash):
+        raise HTTPException(401, detail="Contraseña actual incorrecta")
+    u.password_hash = hash_password(payload.new_password)
+    db.add(u)
+    db.commit()
+    return {"ok": True}
