@@ -1,5 +1,6 @@
 from starlette.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.config import settings
 
 def add_cors(app):
     app.add_middleware(

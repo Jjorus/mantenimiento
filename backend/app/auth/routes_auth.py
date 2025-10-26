@@ -1,51 +1,45 @@
-from __future__ import annotations
-
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from jose import jwt, JWTError
-from pydantic import BaseModel, Field, StringConstraints
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from jose import jwt
+from pydantic import BaseModel, StringConstraints
 from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.core.deps import get_db, current_user, require_role
-from app.core.security import hash_password, verify_password  # Argon2id
+from app.core.security import hash_password, verify_password
+from app.core.rate_limit import (
+    is_locked,
+    incr_login_fail,
+    lock_if_needed,
+    reset_login_counters_and_unlock,
+)
 from app.models.usuario import Usuario
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-
-# =========================
-# Utilidades JWT (access)
-# =========================
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 def make_access_token(sub: str, role: str) -> tuple[str, int]:
     exp = _now() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
-        
         "sub": sub,
         "role": role,
         "exp": exp,
     }
-
+    # Añade iss/aud sólo si están configurados
     if settings.ISSUER:
         payload["iss"] = settings.ISSUER
     if settings.AUDIENCE:
         payload["aud"] = settings.AUDIENCE
 
-    # SECRET_KEY es SecretStr: obtener str real
     key = settings.SECRET_KEY.get_secret_value()
     token = jwt.encode(payload, key, algorithm=settings.JWT_ALGORITHM)
     return token, int(exp.timestamp())
 
-
-# =========================
-# Esquemas
-# =========================
-
+# ===== Esquemas =====
 UsernameStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3)]
 PasswordStr = Annotated[str, StringConstraints(min_length=6)]
 RoleStr     = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3)]
@@ -76,24 +70,44 @@ class UserCreateIn(BaseModel):
 
 class UserPatchIn(BaseModel):
     password: Optional[PasswordStr] = None
-    role: Optional[RoleStr] = None   # "ADMIN" | "MANTENIMIENTO" | "OPERARIO"
+    role: Optional[RoleStr] = None
     active: Optional[bool] = None
 
 class ChangePasswordIn(BaseModel):
     current_password: PasswordStr
     new_password:     PasswordStr
 
-
-# =========================
-# Endpoints
-# =========================
-
+# ===== Endpoints =====
 @router.post("/login", response_model=LoginOut)
-def login(data: LoginIn, db: Session = Depends(get_db)):
+def login(data: LoginIn, request: Request, db: Session = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+
+    # 1) ¿Bloqueado usuario o IP?
+    locked, ttl, reason = is_locked(data.username, client_ip)
+    if locked:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Cuenta bloqueada por intentos fallidos. Intenta de nuevo en {ttl} segundos.",
+        )
+
+    # 2) Credenciales
     user = db.exec(select(Usuario).where(Usuario.username == data.username)).first()
-    if not user or not user.active or not verify_password(data.password, user.password_hash):
+    ok = bool(user and user.active and verify_password(data.password, user.password_hash))
+
+    if not ok:
+        incr_login_fail(data.username, client_ip)
+        now_locked, ttl2, _ = lock_if_needed(data.username, client_ip)
+        if now_locked:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Cuenta bloqueada por intentos fallidos. Intenta de nuevo en {ttl2} segundos.",
+            )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
 
+    # 4) Éxito: limpia contadores y locks
+    reset_login_counters_and_unlock(data.username, client_ip)
+
+    # 5) Token
     token, exp_ts = make_access_token(str(user.id), user.role)
     return LoginOut(
         access_token=token,
@@ -144,13 +158,11 @@ def actualizar_usuario(user_id: int, data: UserPatchIn, db: Session = Depends(ge
 
     if data.password is not None:
         user.password_hash = hash_password(data.password)
-
     if data.role is not None:
         role = data.role.upper()
         if role not in ("ADMIN", "MANTENIMIENTO", "OPERARIO"):
             raise HTTPException(422, detail="Rol inválido")
         user.role = role
-
     if data.active is not None:
         user.active = data.active
 

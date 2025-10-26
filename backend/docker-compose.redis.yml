@@ -1,0 +1,11 @@
+version: "3.8"
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: mant_redis
+    command: ["redis-server", "--requirepass", "CaRrIzOsA80", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    restart: unless-stopped
+    volumes: [ "redisdata:/data" ]
+volumes:
+  redisdata:

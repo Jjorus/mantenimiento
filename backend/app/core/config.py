@@ -65,4 +65,18 @@ class Settings(BaseSettings):
     # --- Rate Limiting ---
     RATE_LIMIT_GLOBAL: str = "200/minute"
 
+    # --- DOCS ----
+
+    DOCS_ENABLED: bool = True
+
+    # Trusted hosts (prod)
+    TRUSTED_HOSTS: Optional[str] = None
+
+    # Política anti-fuerza bruta
+    LOGIN_MAX_FAILS_PER_USER: int = 8
+    LOGIN_BLOCK_TTL_PER_USER_SECONDS: int = 900
+    LOGIN_MAX_FAILS_PER_IP: int = 30
+    LOGIN_BLOCK_TTL_PER_IP_SECONDS: int = 900
+
+
 settings = Settings()
