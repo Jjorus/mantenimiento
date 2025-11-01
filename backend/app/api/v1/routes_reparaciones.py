@@ -15,7 +15,7 @@ from app.models.reparacion import Reparacion
 router = APIRouter(prefix="/reparaciones", tags=["reparaciones"])
 
 # ----------------- Constantes / helpers -----------------
-EstadoReparacion = Literal["ABIERTA", "EN_PROGRESO", "CERRADA"]
+EstadoReparacion = Literal["ABIERTA", "EN_PROCESO", "CERRADA"]
 ALLOWED_ORDEN = {
     "id_asc", "id_desc",
     "inicio_asc", "inicio_desc",
@@ -32,15 +32,16 @@ def _raise_422(errors: List[Dict[str, Any]]) -> None:
     raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=errors)
 
 def _validar_estado_transicion(actual: str, nuevo: str, errors: List[Dict[str, Any]]) -> None:
+    # No permitir pasar de CERRADA a otro estado por aquí (usar /reabrir)
     if actual == "CERRADA" and nuevo != "CERRADA":
         errors.append({
             "loc": ["body", "estado"],
-            "msg": "No se puede reabrir una reparación cerrada",
+            "msg": "No se puede reabrir una reparación cerrada desde este endpoint. Usa /{id}/reabrir",
             "type": "value_error"
         })
-    if actual == "ABIERTA" and nuevo not in {"ABIERTA", "EN_PROGRESO", "CERRADA"}:
+    if actual == "ABIERTA" and nuevo not in {"ABIERTA", "EN_PROCESO", "CERRADA"}:
         errors.append({"loc": ["body", "estado"], "msg": "Transición inválida", "type": "value_error"})
-    if actual == "EN_PROGRESO" and nuevo not in {"EN_PROGRESO", "CERRADA"}:
+    if actual == "EN_PROCESO" and nuevo not in {"EN_PROCESO", "CERRADA"}:
         errors.append({"loc": ["body", "estado"], "msg": "Transición inválida", "type": "value_error"})
 
 # ----------------- Schemas -----------------
@@ -48,7 +49,7 @@ class ReparacionCreateIn(BaseModel):
     equipo_id: int = Field(..., gt=0, examples=[1])
     titulo: str = Field(..., min_length=3, max_length=150)
     descripcion: Optional[str] = Field(None, max_length=8000)
-    # opcionalmente permitir abrir ya EN_PROGRESO
+    # opcionalmente permitir abrir ya EN_PROCESO
     estado: Optional[EstadoReparacion] = Field(None, examples=["ABIERTA"])
 
 class ReparacionUpdateIn(BaseModel):
@@ -63,6 +64,7 @@ class ReparacionCerrarIn(BaseModel):
 @router.post(
     "",
     response_model=Reparacion,
+    response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_role("MANTENIMIENTO", "ADMIN"))],
 )
@@ -80,7 +82,8 @@ def crear_reparacion(
         errors.append({"loc": ["body", "equipo_id"], "msg": "Equipo inexistente", "type": "value_error.foreign_key"})
 
     estado = payload.estado or "ABIERTA"
-    if estado not in {"ABIERTA", "EN_PROGRESO"}:  # no crear directamente CERRADA (forzar cierre por endpoint dedicado)
+    # No permitir crear directamente 'CERRADA'
+    if estado not in {"ABIERTA", "EN_PROCESO"}:
         errors.append({"loc": ["body", "estado"], "msg": "Estado inicial inválido", "type": "value_error"})
 
     if errors:
@@ -150,7 +153,7 @@ def listar_reparaciones(
     if estado:
         conds.append(Reparacion.estado == estado)
     if estados:
-        lista = [e.strip() for e in estados.split(",") if e.strip()]
+        lista = [e.strip().upper() for e in estados.split(",") if e.strip()]
         validos = [e for e in lista if e in EstadoReparacion.__args__]
         if validos:
             conds.append(Reparacion.estado.in_(validos))
@@ -159,9 +162,9 @@ def listar_reparaciones(
     if hasta:
         conds.append(Reparacion.fecha_inicio <= hasta)
 
-    for c in conds:
-        stmt = stmt.where(c)
-        count_stmt = count_stmt.where(c)
+    if conds:
+        stmt = stmt.where(*conds)
+        count_stmt = count_stmt.where(*conds)
 
     # orden
     if ordenar == "id_asc":
@@ -232,6 +235,7 @@ def listar_por_equipo(
 @router.patch(
     "/{reparacion_id}",
     response_model=Reparacion,
+    response_model_exclude_none=True,
     dependencies=[Depends(require_role("MANTENIMIENTO", "ADMIN"))],
 )
 def actualizar_reparacion(
@@ -246,15 +250,11 @@ def actualizar_reparacion(
 
     errors: List[Dict[str, Any]] = []
 
-    # equipo_id se mantiene inmutable por seguridad (si lo quisieras cambiar, házmelo saber)
-    # Validar transición de estado
     if payload.estado is not None:
         _validar_estado_transicion(rep.estado, payload.estado, errors)
-
     if errors:
         _raise_422(errors)
 
-    # Bloqueo pesimista opcional para evitar carreras (por ejemplo, cambio simultáneo de estado)
     try:
         with db.begin():
             rep_db = db.exec(
@@ -267,7 +267,7 @@ def actualizar_reparacion(
                 rep_db.descripcion = _norm(payload.descripcion)
 
             if payload.estado is not None and payload.estado != rep_db.estado:
-                # Si llega CERRADA aquí, no cerramos; obligamos a usar el endpoint /cerrar
+                # Cierre por endpoint dedicado
                 if payload.estado == "CERRADA":
                     raise HTTPException(
                         status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -294,6 +294,7 @@ def actualizar_reparacion(
 @router.post(
     "/{reparacion_id}/cerrar",
     response_model=Reparacion,
+    response_model_exclude_none=True,
     dependencies=[Depends(require_role("MANTENIMIENTO", "ADMIN"))],
 )
 def cerrar_reparacion(
@@ -323,6 +324,47 @@ def cerrar_reparacion(
             rep_db.fecha_fin = fecha_fin
             if hasattr(rep_db, "cerrada_por_id") and user and user.get("id"):
                 rep_db.cerrada_por_id = int(user["id"])
+            db.add(rep_db)
+            db.flush()
+            db.refresh(rep_db)
+            return rep_db
+
+    except OperationalError:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Error temporal de base de datos")
+    except IntegrityError:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Conflicto de integridad")
+    except DBAPIError:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Error interno de base de datos")
+
+
+@router.post(
+    "/{reparacion_id}/reabrir",
+    response_model=Reparacion,
+    response_model_exclude_none=True,
+    dependencies=[Depends(require_role("MANTENIMIENTO", "ADMIN"))],
+)
+def reabrir_reparacion(
+    reparacion_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(current_user),
+):
+    rep = db.get(Reparacion, reparacion_id)
+    if not rep:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Reparación no encontrada")
+    if rep.estado != "CERRADA":
+        raise HTTPException(status.HTTP_409_CONFLICT, "La reparación no está cerrada")
+
+    try:
+        with db.begin():
+            rep_db = db.exec(
+                sa_select(Reparacion).where(Reparacion.id == rep.id).with_for_update()
+            ).scalar_one()
+            rep_db.estado = "ABIERTA"
+            rep_db.fecha_fin = None
+            if hasattr(rep_db, "cerrada_por_id"):
+                rep_db.cerrada_por_id = None
+            if hasattr(rep_db, "usuario_modificador_id") and user and user.get("id"):
+                rep_db.usuario_modificador_id = int(user["id"])
             db.add(rep_db)
             db.flush()
             db.refresh(rep_db)

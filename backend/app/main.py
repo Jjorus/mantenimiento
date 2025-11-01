@@ -1,8 +1,9 @@
 # app/main.py
 import time
+import redis
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Final
+from typing import Final, Dict, Any
 
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -31,6 +32,7 @@ OPENAPI_TAGS: Final = [
     {"name": "ubicaciones", "description": "Zonas/almacenes/operarios como ubicaciones lógicas."},
     {"name": "auth", "description": "Autenticación y emisión/refresh de tokens."},
     {"name": "_meta", "description": "Endpoints internos de salud y meta."},
+    {"name": "reparaciones", "description": "Gestión de reparaciones: apertura, edición, cierre y reabrir."},
 ]
 
 @asynccontextmanager
@@ -97,6 +99,7 @@ from app.api.v1.routes_ubicaciones import router as ubic_router
 from app.api.v1.routes_incidencias import router as incidencias_router
 from app.api.v1.routes_movimientos import router as movimientos_router
 from app.api.v1.routes_reparaciones import router as reparaciones_router  # ya integrado
+from app.api.v1.routes_secciones import router as secciones_router
 
 # Prefijos coherentes (usa settings.* para no duplicar)
 app.include_router(auth_router,        prefix=settings.API_PREFIX,    tags=["auth"])        # /api/auth/...
@@ -105,6 +108,8 @@ app.include_router(ubic_router,        prefix=settings.API_V1_PREFIX)           
 app.include_router(incidencias_router, prefix=settings.API_V1_PREFIX)                       # /api/v1/incidencias
 app.include_router(movimientos_router, prefix=settings.API_V1_PREFIX)                       # /api/v1/movimientos
 app.include_router(reparaciones_router,prefix=settings.API_V1_PREFIX)                       # /api/v1/reparaciones
+app.include_router(secciones_router, prefix=settings.API_V1_PREFIX)
+
 
 # ---------- Endpoints de sistema ----------
 @app.get("/", include_in_schema=False, response_class=PlainTextResponse)
@@ -135,6 +140,26 @@ def version():
         "environment": settings.APP_ENV,
         "timestamp": datetime.utcnow().isoformat() + "Z",
     }
+
+@app.get("/_meta/redis", tags=["_meta"])
+def redis_health() -> Dict[str, Any]:
+    """
+    Chequeo básico de Redis (PING) y versión del servidor.
+    """
+    try:
+        r = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        pong = r.ping()
+        info = r.info(section="server")
+        return {
+            "ok": bool(pong),
+            "redis_version": info.get("redis_version"),
+            "mode": info.get("redis_mode"),
+            "uptime_in_seconds": info.get("uptime_in_seconds"),
+        }
+    except Exception as e:
+        logger.error(f"Redis health failed: {e}")
+        return {"ok": False, "error": str(e)}
+
 
 # ---------- Manejadores globales de errores ----------
 @app.exception_handler(IntegrityError)

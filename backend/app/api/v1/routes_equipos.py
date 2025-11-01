@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from sqlalchemy.exc import IntegrityError, DBAPIError
 from sqlalchemy import func
+
 from app.core.deps import get_db, current_user, require_role
 from app.models.equipo import Equipo
 from app.models.seccion import Seccion
@@ -15,6 +16,9 @@ router = APIRouter(prefix="/equipos", tags=["equipos"])
 # ---------- Constantes y Helpers ----------
 EstadoEquipo = Literal["OPERATIVO", "MANTENIMIENTO", "BAJA", "CALIBRACION", "RESERVA"]
 TIPOS_VALIDOS = {"Calibrador", "Multímetro", "Generador", "Osciloscopio", "Fuente", "Analizador", "Otro"}
+# Mapa canónico: si llega "multimetro" -> "Multímetro", etc.
+TIPOS_CANONICOS = {t.lower(): t for t in TIPOS_VALIDOS}
+
 ALLOWED_ORDEN = {"id_asc", "id_desc", "identidad_asc", "identidad_desc", "tipo_asc", "tipo_desc"}
 
 def _norm(s: Optional[str]) -> Optional[str]:
@@ -54,10 +58,14 @@ class EquipoUpdateIn(BaseModel):
     ubicacion_id: Optional[int] = Field(None, gt=0)
     nfc_tag: Optional[str] = Field(None, max_length=64)
 
+class NFCAssignIn(BaseModel):
+    nfc_tag: str = Field(..., min_length=1, max_length=64)
+
 # ---------- Endpoints ----------
 @router.post(
     "",
     response_model=Equipo,
+    response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_role("ADMIN", "MANTENIMIENTO"))],
 )
@@ -70,10 +78,10 @@ def crear_equipo(
 ):
     """
     Crea un equipo.
-    - Normaliza y guarda identidad/nfc_tag en minúsculas (case-insensitive).
-    - Verifica FKs de seccion/ubicacion.
+    - Normaliza identidad/nfc_tag en minúsculas (case-insensitive).
+    - Verifica FKs de seccion/ubicacion y su coherencia.
     - Valida tipo y estado.
-    - Maneja unicidad contra condiciones de carrera.
+    - Maneja unicidad contra condiciones de carrera (409).
     """
     errors: List[Dict[str, Any]] = []
 
@@ -82,8 +90,10 @@ def crear_equipo(
     nfc_tag = _norm(payload.nfc_tag)
     nfc_tag = nfc_tag.lower() if nfc_tag else None
 
-    # Validaciones de negocio
-    _validar_tipo(payload.tipo, errors)
+    # Validaciones de negocio (con canonización opcional)
+    tipo_req = (payload.tipo or "").strip()
+    _validar_tipo(tipo_req, errors)
+    tipo_final = TIPOS_CANONICOS.get(tipo_req.lower(), tipo_req)
 
     # FKs
     if payload.seccion_id is not None and not db.get(Seccion, payload.seccion_id):
@@ -91,7 +101,17 @@ def crear_equipo(
     if payload.ubicacion_id is not None and not db.get(Ubicacion, payload.ubicacion_id):
         errors.append({"loc": ["body", "ubicacion_id"], "msg": "Ubicación inexistente", "type": "value_error.foreign_key"})
 
-    # Pre-chequeos de unicidad (mejor UX). Se refuerza con índices únicos en BD (LOWER(...)).
+    # Coherencia sección-ubicación (si llegan ambos)
+    if payload.seccion_id is not None and payload.ubicacion_id is not None:
+        u = db.get(Ubicacion, payload.ubicacion_id)
+        if u and u.seccion_id and u.seccion_id != payload.seccion_id:
+            errors.append({
+                "loc": ["body", "ubicacion_id"],
+                "msg": "La ubicación no pertenece a la sección indicada",
+                "type": "value_error"
+            })
+
+    # Pre-chequeos de unicidad (UX) reforzados por índices únicos funcionales
     if identidad:
         if db.exec(select(Equipo).where(func.lower(Equipo.identidad) == identidad)).first():
             errors.append({"loc": ["body", "identidad"], "msg": "identidad ya existe", "type": "value_error.unique"})
@@ -105,7 +125,7 @@ def crear_equipo(
     equipo = Equipo(
         identidad=identidad,
         numero_serie=_norm(payload.numero_serie),
-        tipo=payload.tipo,
+        tipo=tipo_final,
         estado=payload.estado,
         seccion_id=payload.seccion_id,
         ubicacion_id=payload.ubicacion_id,
@@ -118,8 +138,8 @@ def crear_equipo(
         db.refresh(equipo)
     except IntegrityError:
         db.rollback()
-        # Si hay índices únicos funcionales (LOWER(...)), una carrera caería aquí
-        raise HTTPException(status.HTTP_409_CONFLICT, "Conflicto de integridad (probable duplicado de identidad o nfc_tag)")
+        # Carrera con índices únicos (LOWER(...))
+        raise HTTPException(status.HTTP_409_CONFLICT, "Conflicto de integridad (duplicado de identidad o nfc_tag)")
     except DBAPIError:
         db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Error interno de base de datos")
@@ -155,14 +175,11 @@ def listar_equipos(
     Devuelve `X-Total-Count` con el total sin paginar.
     """
     if ordenar not in ALLOWED_ORDEN:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=[{
-                "loc": ["query", "ordenar"],
-                "msg": f"Orden inválido. Válidos: {', '.join(sorted(ALLOWED_ORDEN))}",
-                "type": "value_error"
-            }],
-        )
+        _raise_422([{
+            "loc": ["query", "ordenar"],
+            "msg": f"Orden inválido. Válidos: {', '.join(sorted(ALLOWED_ORDEN))}",
+            "type": "value_error"
+        }])
 
     stmt = select(Equipo)
     count_stmt = select(func.count()).select_from(Equipo)
@@ -193,17 +210,17 @@ def listar_equipos(
             stmt = stmt.where(c)
             count_stmt = count_stmt.where(c)
 
-    # Ordenamiento
+    # Ordenamiento (estable y con nulos al final en identidad)
     if ordenar == "id_asc":
         stmt = stmt.order_by(Equipo.id.asc())
     elif ordenar == "identidad_asc":
-        stmt = stmt.order_by(Equipo.identidad.asc().nulls_last())
+        stmt = stmt.order_by(Equipo.identidad.asc().nulls_last(), Equipo.id.asc())
     elif ordenar == "identidad_desc":
-        stmt = stmt.order_by(Equipo.identidad.desc().nulls_last())
+        stmt = stmt.order_by(Equipo.identidad.desc().nulls_last(), Equipo.id.desc())
     elif ordenar == "tipo_asc":
-        stmt = stmt.order_by(Equipo.tipo.asc())
+        stmt = stmt.order_by(Equipo.tipo.asc(), Equipo.id.asc())
     elif ordenar == "tipo_desc":
-        stmt = stmt.order_by(Equipo.tipo.desc())
+        stmt = stmt.order_by(Equipo.tipo.desc(), Equipo.id.desc())
     else:  # id_desc por defecto
         stmt = stmt.order_by(Equipo.id.desc())
 
@@ -236,7 +253,6 @@ def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
 def buscar_equipo_por_nfc(nfc_tag: str, db: Session = Depends(get_db)):
     """
     Buscar equipo por NFC tag exacto (case-insensitive).
-    Útil para integración con lectores NFC.
     """
     nfc_tag_clean = nfc_tag.strip().lower()
     equipo = db.exec(
@@ -249,6 +265,25 @@ def buscar_equipo_por_nfc(nfc_tag: str, db: Session = Depends(get_db)):
             "No se encontró ningún equipo con el NFC tag proporcionado"
         )
 
+    return equipo
+
+
+@router.get(
+    "/buscar/identidad/{identidad}",
+    response_model=Equipo,
+    response_model_exclude_none=True,
+    dependencies=[Depends(current_user)],
+)
+def buscar_equipo_por_identidad(identidad: str, db: Session = Depends(get_db)):
+    """
+    Buscar equipo por identidad exacta (case-insensitive).
+    """
+    ident = (identidad or "").strip().lower()
+    equipo = db.exec(
+        select(Equipo).where(func.lower(Equipo.identidad) == ident)
+    ).first()
+    if not equipo:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe equipo con esa identidad")
     return equipo
 
 
@@ -266,7 +301,6 @@ def listar_equipos_sin_ubicacion(
 ):
     """
     Listar equipos que no tienen ubicación asignada.
-    Útil para identificar equipos que necesitan ser ubicados.
     """
     stmt = (
         select(Equipo)
@@ -286,6 +320,7 @@ def listar_equipos_sin_ubicacion(
 @router.patch(
     "/{equipo_id}",
     response_model=Equipo,
+    response_model_exclude_none=True,
     dependencies=[Depends(require_role("ADMIN", "MANTENIMIENTO"))],
 )
 def actualizar_equipo(
@@ -296,8 +331,9 @@ def actualizar_equipo(
 ):
     """
     Actualiza campos del equipo.
-    - Normaliza y guarda identidad/nfc_tag en minúsculas.
+    - Normaliza identidad/nfc_tag en minúsculas.
     - Verifica FKs y tipos si se envían.
+    - Coherencia sección-ubicación.
     - Maneja unicidad con IntegrityError (carreras).
     """
     obj = db.get(Equipo, equipo_id)
@@ -306,9 +342,13 @@ def actualizar_equipo(
 
     errors: List[Dict[str, Any]] = []
 
-    # Validaciones de negocio
+    # Validaciones de negocio + canonización opcional del tipo
     if payload.tipo is not None:
-        _validar_tipo(payload.tipo, errors)
+        tipo_req = payload.tipo.strip()
+        _validar_tipo(tipo_req, errors)
+        tipo_final = TIPOS_CANONICOS.get(tipo_req.lower(), tipo_req)
+    else:
+        tipo_final = None
 
     if payload.estado is not None:
         if payload.estado not in get_args(EstadoEquipo):
@@ -323,6 +363,18 @@ def actualizar_equipo(
         errors.append({"loc": ["body", "seccion_id"], "msg": "Sección inexistente", "type": "value_error.foreign_key"})
     if payload.ubicacion_id is not None and not db.get(Ubicacion, payload.ubicacion_id):
         errors.append({"loc": ["body", "ubicacion_id"], "msg": "Ubicación inexistente", "type": "value_error.foreign_key"})
+
+    # Coherencia sección-ubicación (considera valores nuevos o actuales)
+    new_seccion_id = payload.seccion_id if payload.seccion_id is not None else obj.seccion_id
+    new_ubic_id    = payload.ubicacion_id if payload.ubicacion_id is not None else obj.ubicacion_id
+    if new_seccion_id is not None and new_ubic_id is not None:
+        u = db.get(Ubicacion, new_ubic_id)
+        if u and u.seccion_id and u.seccion_id != new_seccion_id:
+            errors.append({
+                "loc": ["body", "ubicacion_id"],
+                "msg": "La ubicación no pertenece a la sección indicada",
+                "type": "value_error"
+            })
 
     # Pre-validaciones de unicidad (case-insensitive)
     identidad = _norm(payload.identidad) if payload.identidad is not None else None
@@ -347,7 +399,7 @@ def actualizar_equipo(
     if payload.numero_serie is not None:
         obj.numero_serie = _norm(payload.numero_serie)
     if payload.tipo is not None:
-        obj.tipo = payload.tipo
+        obj.tipo = tipo_final
     if payload.estado is not None:
         obj.estado = payload.estado
     if payload.seccion_id is not None:
@@ -407,37 +459,37 @@ def resumen_estadisticas(db: Session = Depends(get_db)):
     """
     total = db.exec(select(func.count(Equipo.id))).scalar_one()
 
-    por_estado = db.exec(
-        select(Equipo.estado, func.count(Equipo.id))
-        .group_by(Equipo.estado)
+    # Evitar claves None en el dict final
+    por_estado_rows = db.exec(
+        select(Equipo.estado, func.count(Equipo.id)).group_by(Equipo.estado)
     ).all()
+    por_estado = {k: v for k, v in por_estado_rows if k is not None}
 
-    por_tipo = db.exec(
+    por_tipo_rows = db.exec(
         select(Equipo.tipo, func.count(Equipo.id))
         .group_by(Equipo.tipo)
         .order_by(func.count(Equipo.id).desc())
         .limit(10)
     ).all()
+    por_tipo = {k: v for k, v in por_tipo_rows if k is not None}
 
     sin_ubicacion = db.exec(
-        select(func.count(Equipo.id))
-        .where(Equipo.ubicacion_id.is_(None))
+        select(func.count(Equipo.id)).where(Equipo.ubicacion_id.is_(None))
     ).scalar_one()
 
     return {
         "total_equipos": total,
-        "por_estado": dict(por_estado),
-        "tipos_mas_comunes": dict(por_tipo),
+        "por_estado": por_estado,
+        "tipos_mas_comunes": por_tipo,
         "sin_ubicacion": sin_ubicacion,
         "con_ubicacion": total - sin_ubicacion,
     }
 
-class NFCAssignIn(BaseModel):
-    nfc_tag: str = Field(..., min_length=1, max_length=64)
 
 @router.post(
     "/{equipo_id}/nfc/assign",
     response_model=Equipo,
+    response_model_exclude_none=True,
     dependencies=[Depends(require_role("MANTENIMIENTO", "ADMIN"))],
 )
 def asignar_nfc(
@@ -471,6 +523,7 @@ def asignar_nfc(
         db.rollback()
         # por si el UNIQUE funcional pilla una carrera
         raise HTTPException(status.HTTP_409_CONFLICT, "nfc_tag ya asignado")
+
 
 @router.delete(
     "/{equipo_id}/nfc",
