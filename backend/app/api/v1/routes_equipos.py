@@ -1,6 +1,6 @@
 # backend/app/api/v1/routes_equipos.py
 from typing import Optional, List, Dict, Any, Literal, get_args
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request, Query, Body
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from sqlalchemy.exc import IntegrityError, DBAPIError
@@ -431,3 +431,64 @@ def resumen_estadisticas(db: Session = Depends(get_db)):
         "sin_ubicacion": sin_ubicacion,
         "con_ubicacion": total - sin_ubicacion,
     }
+
+class NFCAssignIn(BaseModel):
+    nfc_tag: str = Field(..., min_length=1, max_length=64)
+
+@router.post(
+    "/{equipo_id}/nfc/assign",
+    response_model=Equipo,
+    dependencies=[Depends(require_role("MANTENIMIENTO", "ADMIN"))],
+)
+def asignar_nfc(
+    equipo_id: int,
+    payload: NFCAssignIn,
+    db: Session = Depends(get_db),
+    user=Depends(current_user),
+):
+    tag = (payload.nfc_tag or "").strip().lower()
+    if not tag:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "nfc_tag vacío")
+
+    eq = db.get(Equipo, equipo_id)
+    if not eq:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Equipo no encontrado")
+
+    # ¿tag ya en uso?
+    conflict = db.exec(
+        select(Equipo).where(func.lower(Equipo.nfc_tag) == tag, Equipo.id != equipo_id)
+    ).first()
+    if conflict:
+        raise HTTPException(status.HTTP_409_CONFLICT, "nfc_tag ya asignado a otro equipo")
+
+    eq.nfc_tag = tag
+    try:
+        db.add(eq)
+        db.commit()
+        db.refresh(eq)
+        return eq
+    except IntegrityError:
+        db.rollback()
+        # por si el UNIQUE funcional pilla una carrera
+        raise HTTPException(status.HTTP_409_CONFLICT, "nfc_tag ya asignado")
+
+@router.delete(
+    "/{equipo_id}/nfc",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("MANTENIMIENTO", "ADMIN"))],
+)
+def desasignar_nfc(
+    equipo_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(current_user),
+):
+    eq = db.get(Equipo, equipo_id)
+    if not eq:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Equipo no encontrado")
+    if not eq.nfc_tag:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    eq.nfc_tag = None
+    db.add(eq)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

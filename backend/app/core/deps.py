@@ -3,22 +3,21 @@ from typing import Generator, Any, Dict, Callable, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
 from sqlmodel import Session
 
 from app.core.config import settings
 from app.core.db import get_session
+from app.core.security import decode_token  # <--- centralizamos validación JWT
 from app.models.usuario import Usuario
 
 # ----- Seguridad para Swagger/Docs: "Authorize" => Bearer <token> -----
+# auto_error=True => FastAPI devolverá 403 si falta Authorization; nosotros
+# igualmente enriquecemos los mensajes cuando hay token pero es inválido.
 security = HTTPBearer(auto_error=True)
-
 
 # ----- Sesión de BD -----
 def get_db() -> Generator[Session, None, None]:
-    # Propaga el generator de la capa de datos
     yield from get_session()
-
 
 # ----- Revocación opcional de tokens vía Redis (si está disponible) -----
 _redis_client = None  # lazy init
@@ -41,39 +40,10 @@ def _is_token_revoked(jti: Optional[str]) -> bool:
     if not r:
         return False
     try:
-        # La clave/convención puede ajustarse en app.core.security
         return r.exists(f"jwt:revoked:{jti}") == 1
     except Exception:
         # Si Redis falla, no bloqueamos por revocación
         return False
-
-
-# ----- Decodificación/validación JWT -----
-def _decode_token(token: str) -> Dict[str, Any]:
-    """
-    Decodifica y valida el JWT.
-    - Verifica 'iss' y 'aud' solo si están configurados.
-    - Desactiva verificación 'aud' si no hay AUDIENCE.
-    - Aplica una pequeña tolerancia (leeway) para evitar falsos positivos por reloj.
-    """
-    key = settings.SECRET_KEY.get_secret_value()
-    algorithms = [getattr(settings, "JWT_ALGORITHM", "HS256") or "HS256"]
-
-    options: Dict[str, Any] = {}
-    decode_kwargs: Dict[str, Any] = {
-        "algorithms": algorithms,
-        "options": options,
-        "leeway": 30,  # segundos de tolerancia
-    }
-    if settings.ISSUER:
-        decode_kwargs["issuer"] = settings.ISSUER
-    if settings.AUDIENCE:
-        decode_kwargs["audience"] = settings.AUDIENCE
-    else:
-        options["verify_aud"] = False
-
-    return jwt.decode(token, key, **decode_kwargs)
-
 
 # ----- Dependencias de usuario actual (desde el token) -----
 def current_user(
@@ -82,41 +52,48 @@ def current_user(
     """
     Extrae y valida el token Bearer. Devuelve un dict mínimo con:
       { "id": <sub:int|str>, "role": <ROLE>, "jti": <id del token o None> }
-    Requiere que 'type' == 'access' (no acepta refresh aquí).
-    Aplica revocación opcional por Redis si 'jti' presente.
+
+    Requisitos:
+    - Debe ser un token de tipo ACCESS (acepta claim 'typ' o 'type' == 'access').
+    - Respeta verificación condicional de ISS/AUD (config en settings).
+    - Aplica revocación opcional por Redis si 'jti' está presente.
     """
     if not creds or not creds.credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="No autenticado",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     token = creds.credentials
     try:
-        payload = _decode_token(token)
-    except JWTError:
+        payload = decode_token(token, leeway_seconds=30)  # tolerancia de reloj
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido",
+            headers={"WWW-Authenticate": "Bearer error='invalid_token'"},
         )
 
-    # tipo de token
-    ttype = (payload.get("type") or "access").lower()
+    # tipo de token: aceptamos 'typ' o 'type'
+    ttype = (payload.get("typ") or payload.get("type") or "access").lower()
     if ttype != "access":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token no válido para acceso (se esperaba 'access')",
+            headers={"WWW-Authenticate": "Bearer error='invalid_token'"},
         )
 
-    # subject obligatorio
+    # subject (usuario) obligatorio
     sub = payload.get("sub")
     if not sub:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token sin 'sub'",
+            headers={"WWW-Authenticate": "Bearer error='invalid_token'"},
         )
 
-    # role del token (fallback a OPERARIO)
+    # rol del token (fallback a OPERARIO)
     role = (payload.get("role") or "OPERARIO").upper()
 
     # revocación opcional (si hay jti)
@@ -125,6 +102,7 @@ def current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token revocado",
+            headers={"WWW-Authenticate": "Bearer error='invalid_token'"},
         )
 
     # intenta convertir sub a int si procede
@@ -134,7 +112,6 @@ def current_user(
         sub_cast = sub  # mantener como string si no es numérico
 
     return {"id": sub_cast, "role": role, "jti": jti}
-
 
 def current_active_user_obj(
     db: Session = Depends(get_db),
@@ -150,6 +127,7 @@ def current_active_user_obj(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuario no encontrado",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     if not obj.active:
         raise HTTPException(
@@ -157,7 +135,6 @@ def current_active_user_obj(
             detail="Usuario deshabilitado",
         )
     return obj
-
 
 # ----- Autorización por rol -----
 def require_role(*roles: str, check_db: bool = False) -> Callable:
@@ -174,7 +151,6 @@ def require_role(*roles: str, check_db: bool = False) -> Callable:
         db: Session = Depends(get_db),
         token_user: Dict[str, Any] = Depends(current_user),
     ):
-        # Bypass para ADMIN (según token o BD)
         if not check_db:
             role = token_user.get("role", "").upper()
             if role == "ADMIN":
@@ -192,6 +168,7 @@ def require_role(*roles: str, check_db: bool = False) -> Callable:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Usuario no encontrado",
+                headers={"WWW-Authenticate": "Bearer"},
             )
         if not obj.active:
             raise HTTPException(

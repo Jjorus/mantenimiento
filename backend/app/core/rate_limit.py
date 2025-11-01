@@ -1,4 +1,5 @@
 # app/core/rate_limit.py
+import time
 import redis
 from typing import Tuple, Optional
 from app.core.config import settings
@@ -16,9 +17,11 @@ def get_redis() -> redis.Redis:
     return _redis_client
 
 
-# ---------------------------
-# Claves
-# ---------------------------
+# ===========================
+#        LOGIN RATE LIMIT
+# ===========================
+
+# --- Claves específicas de login ---
 def _key_user_fails(username: str) -> str:
     return f"rl:login:user:{username}:fails"
 
@@ -32,9 +35,7 @@ def _key_ip_lock(ip: str) -> str:
     return f"rl:login:ip:{ip}:lock"
 
 
-# ---------------------------
-# Utilidades TTL
-# ---------------------------
+# --- Utilidades TTL ---
 def _ttl_seconds(r: redis.Redis, key: str) -> int:
     """
     Devuelve segundos restantes de expiración para 'key'.
@@ -46,9 +47,7 @@ def _ttl_seconds(r: redis.Redis, key: str) -> int:
     return int(ttl)
 
 
-# ---------------------------
-# API pública
-# ---------------------------
+# --- API login ---
 def is_locked(username: str, ip: str) -> Tuple[bool, int, str]:
     """
     True si hay lock activo por usuario o por IP.
@@ -125,3 +124,71 @@ def reset_login_counters_and_unlock(username: str, ip: str) -> None:
         _key_user_lock(username),
         _key_ip_lock(ip),
     )
+
+
+# ===========================
+#   UTILIDADES GENERALES RL
+# ===========================
+
+class RateLimitExceeded(Exception):
+    def __init__(self, retry_after: int, message: str = "Rate limit exceeded"):
+        super().__init__(message)
+        self.retry_after = max(1, int(retry_after))
+
+
+def _now() -> int:
+    return int(time.time())
+
+
+def allow_sliding_window(key: str, limit: int, window_sec: int) -> Tuple[bool, int]:
+    """
+    Rate limit con ventana deslizante usando Sorted Set en Redis.
+    - key: identificador (p.ej. 'nfc-move:u:123' o 'nfc-move:tag:abcd123')
+    - limit: nº máx de peticiones por ventana
+    - window_sec: tamaño de ventana en segundos
+
+    Devuelve (allowed, retry_after).
+    """
+    r = get_redis()
+    now = _now()
+    zkey = f"rl:sw:{key}"
+
+    pipe = r.pipeline()
+    # 1) Limpia eventos fuera de la ventana
+    pipe.zremrangebyscore(zkey, 0, now - window_sec)
+    # 2) Añade evento actual (score=now)
+    pipe.zadd(zkey, {str(now): now})
+    # 3) Cuenta
+    pipe.zcard(zkey)
+    # 4) TTL higiene
+    pipe.expire(zkey, window_sec + 5)
+    _, _, count, _ = pipe.execute()
+
+    if count > limit:
+        # Estimación simple del reintento: 1s
+        return False, 1
+    return True, 0
+
+
+def set_debounce(key: str, ttl_sec: int) -> bool:
+    """
+    Debounce anti-doble ejecución inmediata.
+    SETNX + TTL: True si pudo fijar (primer intento), False si ya existía.
+    """
+    r = get_redis()
+    dkey = f"deb:{key}"
+    ok = r.set(dkey, "1", ex=ttl_sec, nx=True)
+    return bool(ok)
+
+
+def register_idempotency(idem_key: str, ttl_sec: int) -> bool:
+    """
+    Idempotencia por cabecera X-Idempotency-Key:
+    True si se registra (primera vez), False si ya existía (repetida).
+    """
+    if not idem_key:
+        return True
+    r = get_redis()
+    key = f"idm:{idem_key}"
+    ok = r.set(key, "1", ex=ttl_sec, nx=True)
+    return bool(ok)

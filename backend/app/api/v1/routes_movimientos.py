@@ -13,6 +13,13 @@ from app.models.equipo import Equipo
 from app.models.ubicacion import Ubicacion
 from app.models.movimiento import Movimiento
 
+# >>> NUEVO: helpers de seguridad (NFC / RL / Idempotencia / Debounce)
+from app.core.security import (
+    assert_idempotent,
+    assert_debounce,
+    check_rate_limit_nfc,
+)
+
 router = APIRouter(prefix="/movimientos", tags=["movimientos"])
 
 # ---------- Helpers ----------
@@ -73,7 +80,6 @@ def _mover_equipo(
                 if not eq.puede_moverse:
                     raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El equipo no puede moverse en su estado actual")
             else:
-                # Fallback si no existe la propiedad
                 if getattr(eq, "estado", None) in {"BAJA"}:
                     raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El equipo no puede moverse en su estado actual")
 
@@ -321,3 +327,71 @@ def actualizar_movimiento(
     except DBAPIError:
         db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error interno de base de datos")
+
+
+# ---------- NFC ----------
+class MovimientoNFCIn(BaseModel):
+    nfc_tag: str = Field(..., min_length=1, max_length=64)
+    hacia_ubicacion_id: int = Field(..., gt=0)
+    comentario: Optional[str] = Field(None, max_length=500)
+
+def _equipo_por_nfc_or_404(db: Session, nfc_tag: str) -> Equipo:
+    tag = (nfc_tag or "").strip().lower()
+    eq = db.exec(select(Equipo).where(func.lower(Equipo.nfc_tag) == tag)).first()
+    if not eq:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe equipo con ese nfc_tag")
+    return eq
+
+@router.post(
+    "/retirar/nfc",
+    response_model=Movimiento,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_role("OPERARIO", "MANTENIMIENTO", "ADMIN"))],
+)
+def retirar_por_nfc(
+    payload: MovimientoNFCIn,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(current_user),
+):
+    # --- Seguridad NFC: idempotencia + debounce + rate limit ---
+    assert_idempotent(request, ttl_sec=30)
+    assert_debounce(f"nfc:{user['id']}:{payload.nfc_tag}:retirar", ttl_sec=3)
+    check_rate_limit_nfc(str(user["id"]), payload.nfc_tag, limit=5, window_sec=10)
+
+    eq = _equipo_por_nfc_or_404(db, payload.nfc_tag)
+    mov = _mover_equipo(
+        db, eq.id, payload.hacia_ubicacion_id, payload.comentario, int(user["id"])
+    )
+    base_url = str(request.base_url).rstrip("/")
+    response.headers["Location"] = f"{base_url}/api/v1/movimientos/{mov.id}"
+    response.headers["Cache-Control"] = "no-store"
+    return mov
+
+@router.post(
+    "/devolver/nfc",
+    response_model=Movimiento,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_role("OPERARIO", "MANTENIMIENTO", "ADMIN"))],
+)
+def devolver_por_nfc(
+    payload: MovimientoNFCIn,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(current_user),
+):
+    # --- Seguridad NFC: idempotencia + debounce + rate limit ---
+    assert_idempotent(request, ttl_sec=30)
+    assert_debounce(f"nfc:{user['id']}:{payload.nfc_tag}:devolver", ttl_sec=3)
+    check_rate_limit_nfc(str(user["id"]), payload.nfc_tag, limit=5, window_sec=10)
+
+    eq = _equipo_por_nfc_or_404(db, payload.nfc_tag)
+    mov = _mover_equipo(
+        db, eq.id, payload.hacia_ubicacion_id, payload.comentario, int(user["id"])
+    )
+    base_url = str(request.base_url).rstrip("/")
+    response.headers["Location"] = f"{base_url}/api/v1/movimientos/{mov.id}"
+    response.headers["Cache-Control"] = "no-store"
+    return mov
