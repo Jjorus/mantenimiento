@@ -2,8 +2,8 @@
 from typing import Optional, TYPE_CHECKING
 from datetime import datetime, timezone
 
-from sqlmodel import SQLModel, Field, Relationship, Column
-from sqlalchemy import DateTime, func
+from sqlmodel import SQLModel, Field, Relationship
+from sqlalchemy import DateTime, func, Column
 from sqlalchemy.dialects.postgresql import CITEXT  # requiere extensión 'citext'
 from pydantic import ConfigDict
 

@@ -50,6 +50,7 @@ class MovimientoPatchIn(BaseModel):
     comentario: Optional[str] = Field(None, max_length=500)
 
 # ---------- Core ----------
+
 def _mover_equipo(
     db: Session,
     equipo_id: int,
@@ -57,9 +58,17 @@ def _mover_equipo(
     comentario: Optional[str] = None,
     actor_id: Optional[int] = None,
 ) -> Movimiento:
+    """
+    Mueve un equipo a una nueva ubicación creando un Movimiento.
+    - Usa begin_nested() si ya hay una tx abierta (evita 'A transaction is already begun').
+    - Bloqueo pesimista con SELECT ... FOR UPDATE.
+    """
+    # Elegir contexto transaccional adecuado (tx normal o savepoint)
+    tx_ctx = db.begin_nested() if db.in_transaction() else db.begin()
+
     try:
-        with db.begin():
-            # Bloqueo pesimista para evitar carreras
+        with tx_ctx:
+            # Bloqueo pesimista para evitar condiciones de carrera
             eq = db.exec(
                 sa_select(Equipo).where(Equipo.id == equipo_id).with_for_update()
             ).scalar_one_or_none()
@@ -68,7 +77,6 @@ def _mover_equipo(
 
             dest = db.get(Ubicacion, nueva_ubicacion_id)
             if not dest:
-                # 422 al estilo Pydantic
                 _raise_422([{
                     "loc": ["body", "hacia_ubicacion_id"],
                     "msg": "Ubicación destino inexistente",
@@ -78,14 +86,23 @@ def _mover_equipo(
             # Reglas de negocio de movibilidad
             if hasattr(eq, "puede_moverse"):
                 if not eq.puede_moverse:
-                    raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El equipo no puede moverse en su estado actual")
+                    raise HTTPException(
+                        status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail="El equipo no puede moverse en su estado actual"
+                    )
             else:
                 if getattr(eq, "estado", None) in {"BAJA"}:
-                    raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El equipo no puede moverse en su estado actual")
+                    raise HTTPException(
+                        status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail="El equipo no puede moverse en su estado actual"
+                    )
 
             if eq.ubicacion_id == nueva_ubicacion_id:
                 # 409: ya está en el destino
-                raise HTTPException(status.HTTP_409_CONFLICT, detail="El equipo ya se encuentra en esta ubicación")
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    detail="El equipo ya se encuentra en esta ubicación"
+                )
 
             mov = Movimiento(
                 equipo_id=eq.id,
@@ -96,31 +113,36 @@ def _mover_equipo(
             if hasattr(Movimiento, "usuario_id") and actor_id is not None:
                 mov.usuario_id = actor_id
 
+            # Aplicar cambio de ubicación
             eq.ubicacion_id = dest.id
 
             db.add_all([mov, eq])
-            db.flush()
-            db.refresh(mov)
-            return mov
+            db.flush()  # asegura IDs para refresco
+
+        # fuera del with: transacción OK (o savepoint confirmado)
+        db.refresh(mov)
+        return mov
 
     except OperationalError:
         # deadlocks/timeouts → 503 temporal
+        db.rollback()
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Error temporal de base de datos. Intente nuevamente."
         )
     except IntegrityError:
-        # conflictos de integridad (FK, etc.)
+        db.rollback()
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail="Conflicto de integridad (revise FK/estado)."
         )
     except DBAPIError:
+        db.rollback()
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno de base de datos"
         )
-
+    
 # ---------- Endpoints de acción ----------
 @router.post(
     "/retirar",
@@ -232,7 +254,7 @@ def listar_movimientos(
     else:  # fecha_desc
         data_stmt = data_stmt.order_by(Movimiento.fecha.desc(), Movimiento.id.desc())
 
-    total = db.exec(total_stmt).scalar_one()
+    total = db.exec(total_stmt).one()
     response.headers["X-Total-Count"] = str(total)
 
     data_stmt = data_stmt.limit(limit).offset(offset)
@@ -259,9 +281,8 @@ def historial_equipo(
     if not eq:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Equipo no encontrado")
 
-    total = db.exec(
-        select(func.count()).select_from(Movimiento).where(Movimiento.equipo_id == equipo_id)
-    ).scalar_one()
+    total = db.exec(select(func.count()).select_from(Movimiento).where(Movimiento.equipo_id == equipo_id)).one()
+    
     response.headers["X-Total-Count"] = str(total)
 
     stmt = (

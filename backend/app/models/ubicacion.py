@@ -18,7 +18,7 @@ from pydantic import ConfigDict
 if TYPE_CHECKING:
     from .seccion import Seccion
     from .equipo import Equipo
-
+    from .movimiento import Movimiento  # <- añadir para hints
 
 class Ubicacion(SQLModel, table=True):
     """
@@ -30,18 +30,13 @@ class Ubicacion(SQLModel, table=True):
     model_config = ConfigDict(from_attributes=True)
 
     __table_args__ = (
-        # Un nombre de ubicación debe ser único dentro de la misma sección
         UniqueConstraint("seccion_id", "nombre", name="uq_ubicacion_seccion_nombre"),
-        # Índices comunes de consulta
         Index("ix_ubicacion_nombre", "nombre"),
         Index("ix_ubicacion_seccion", "seccion_id"),
     )
 
-    # --- PK ---
     id: Optional[int] = Field(default=None, primary_key=True)
 
-    # --- Datos principales ---
-    # OJO: usamos sa_column; por eso los índices se definen en __table_args__
     nombre: str = Field(
         sa_column=Column(String(150), nullable=False),
         min_length=2,
@@ -49,7 +44,6 @@ class Ubicacion(SQLModel, table=True):
         description="Nombre visible de la ubicación (único por sección)",
     )
 
-    # ON DELETE SET NULL para no romper referencias si se elimina la sección
     seccion_id: Optional[int] = Field(
         default=None,
         sa_column=Column(
@@ -83,6 +77,21 @@ class Ubicacion(SQLModel, table=True):
         sa_relationship_kwargs={"passive_deletes": True},
     )
 
-    # --- Utilidades ---
+    # Nuevas relaciones para enlazar con Movimiento (doble FK)
+    movimientos_entrada: list["Movimiento"] = Relationship(
+        back_populates="hacia_ubicacion",
+        sa_relationship_kwargs={
+            "foreign_keys": "[Movimiento.hacia_ubicacion_id]",
+            "primaryjoin": "Ubicacion.id==Movimiento.hacia_ubicacion_id",
+        },
+    )
+    movimientos_salida: list["Movimiento"] = Relationship(
+        back_populates="desde_ubicacion",
+        sa_relationship_kwargs={
+            "foreign_keys": "[Movimiento.desde_ubicacion_id]",
+            "primaryjoin": "Ubicacion.id==Movimiento.desde_ubicacion_id",
+        },
+    )
+
     def __repr__(self) -> str:
         return f"<Ubicacion {self.id} nombre={self.nombre!r} seccion_id={self.seccion_id}>"

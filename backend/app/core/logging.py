@@ -1,3 +1,4 @@
+# app/core/logging.py
 import logging, sys, json
 from app.core.config import settings
 
@@ -12,3 +13,6 @@ def setup_logging():
     root = logging.getLogger()
     root.handlers = [h]
     root.setLevel(settings.LOG_LEVEL)
+
+def get_logger(name: str) -> logging.Logger:
+    return logging.getLogger(name)

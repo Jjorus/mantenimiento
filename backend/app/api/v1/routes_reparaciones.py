@@ -249,45 +249,47 @@ def actualizar_reparacion(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reparación no encontrada")
 
     errors: List[Dict[str, Any]] = []
-
     if payload.estado is not None:
         _validar_estado_transicion(rep.estado, payload.estado, errors)
     if errors:
         _raise_422(errors)
 
     try:
-        with db.begin():
-            rep_db = db.exec(
-                sa_select(Reparacion).where(Reparacion.id == rep.id).with_for_update()
-            ).scalar_one()
+        # Bloqueo + obtención como instancia ORM
+        rep_db = db.exec(
+            sa_select(Reparacion).where(Reparacion.id == rep.id).with_for_update()
+        ).scalar_one()
 
-            if payload.titulo is not None:
-                rep_db.titulo = _norm(payload.titulo)
-            if payload.descripcion is not None:
-                rep_db.descripcion = _norm(payload.descripcion)
+        if payload.titulo is not None:
+            rep_db.titulo = _norm(payload.titulo)
+        if payload.descripcion is not None:
+            rep_db.descripcion = _norm(payload.descripcion)
 
-            if payload.estado is not None and payload.estado != rep_db.estado:
-                # Cierre por endpoint dedicado
-                if payload.estado == "CERRADA":
-                    raise HTTPException(
-                        status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        "Para cerrar una reparación usa el endpoint /{id}/cerrar",
-                    )
-                rep_db.estado = payload.estado
+        if payload.estado is not None and payload.estado != rep_db.estado:
+            # Cierre por endpoint dedicado
+            if payload.estado == "CERRADA":
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "Para cerrar una reparación usa el endpoint /{id}/cerrar",
+                )
+            rep_db.estado = payload.estado
 
-            if hasattr(rep_db, "usuario_modificador_id") and user and user.get("id"):
-                rep_db.usuario_modificador_id = int(user["id"])
+        if hasattr(rep_db, "usuario_modificador_id") and user and user.get("id"):
+            rep_db.usuario_modificador_id = int(user["id"])
 
-            db.add(rep_db)
-            db.flush()
-            db.refresh(rep_db)
-            return rep_db
+        db.add(rep_db)
+        db.commit()
+        db.refresh(rep_db)
+        return rep_db
 
     except OperationalError:
+        db.rollback()
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Error temporal de base de datos")
     except IntegrityError:
+        db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "Conflicto de integridad")
     except DBAPIError:
+        db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Error interno de base de datos")
 
 
@@ -316,24 +318,29 @@ def cerrar_reparacion(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "fecha_fin no puede ser anterior a fecha_inicio")
 
     try:
-        with db.begin():
-            rep_db = db.exec(
-                sa_select(Reparacion).where(Reparacion.id == rep.id).with_for_update()
-            ).scalar_one()
-            rep_db.estado = "CERRADA"
-            rep_db.fecha_fin = fecha_fin
-            if hasattr(rep_db, "cerrada_por_id") and user and user.get("id"):
-                rep_db.cerrada_por_id = int(user["id"])
-            db.add(rep_db)
-            db.flush()
-            db.refresh(rep_db)
-            return rep_db
+        # Bloqueo + instancia ORM
+        rep_db = db.exec(
+            sa_select(Reparacion).where(Reparacion.id == rep.id).with_for_update()
+        ).scalar_one()
+
+        rep_db.estado = "CERRADA"
+        rep_db.fecha_fin = fecha_fin
+        if hasattr(rep_db, "cerrada_por_id") and user and user.get("id"):
+            rep_db.cerrada_por_id = int(user["id"])
+
+        db.add(rep_db)
+        db.commit()
+        db.refresh(rep_db)
+        return rep_db
 
     except OperationalError:
+        db.rollback()
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Error temporal de base de datos")
     except IntegrityError:
+        db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "Conflicto de integridad")
     except DBAPIError:
+        db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Error interno de base de datos")
 
 
@@ -355,26 +362,31 @@ def reabrir_reparacion(
         raise HTTPException(status.HTTP_409_CONFLICT, "La reparación no está cerrada")
 
     try:
-        with db.begin():
-            rep_db = db.exec(
-                sa_select(Reparacion).where(Reparacion.id == rep.id).with_for_update()
-            ).scalar_one()
-            rep_db.estado = "ABIERTA"
-            rep_db.fecha_fin = None
-            if hasattr(rep_db, "cerrada_por_id"):
-                rep_db.cerrada_por_id = None
-            if hasattr(rep_db, "usuario_modificador_id") and user and user.get("id"):
-                rep_db.usuario_modificador_id = int(user["id"])
-            db.add(rep_db)
-            db.flush()
-            db.refresh(rep_db)
-            return rep_db
+        # Bloqueo + instancia ORM
+        rep_db = db.exec(
+            sa_select(Reparacion).where(Reparacion.id == rep.id).with_for_update()
+        ).scalar_one()
+
+        rep_db.estado = "ABIERTA"
+        rep_db.fecha_fin = None
+        if hasattr(rep_db, "cerrada_por_id"):
+            rep_db.cerrada_por_id = None
+        if hasattr(rep_db, "usuario_modificador_id") and user and user.get("id"):
+            rep_db.usuario_modificador_id = int(user["id"])
+
+        db.add(rep_db)
+        db.commit()
+        db.refresh(rep_db)
+        return rep_db
 
     except OperationalError:
+        db.rollback()
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Error temporal de base de datos")
     except IntegrityError:
+        db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "Conflicto de integridad")
     except DBAPIError:
+        db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Error interno de base de datos")
 
 

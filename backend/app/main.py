@@ -32,7 +32,7 @@ OPENAPI_TAGS: Final = [
     {"name": "ubicaciones", "description": "Zonas/almacenes/operarios como ubicaciones lógicas."},
     {"name": "auth", "description": "Autenticación y emisión/refresh de tokens."},
     {"name": "_meta", "description": "Endpoints internos de salud y meta."},
-    {"name": "reparaciones", "description": "Gestión de reparaciones: apertura, edición, cierre y reabrir."},
+    
 ]
 
 @asynccontextmanager

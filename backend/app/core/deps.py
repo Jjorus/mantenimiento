@@ -1,62 +1,44 @@
 # app/core/deps.py
 from typing import Generator, Any, Dict, Callable, Optional
 
+import logging
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlmodel import Session
 
-from app.core.config import settings
 from app.core.db import get_session
-from app.core.security import decode_token  # <--- centralizamos validación JWT
 from app.models.usuario import Usuario
+from app.core.security import (
+    decode_token,
+    is_revoked,
+    validate_token_type,
+)
+
+# ----- logger (para diagnóstico temporal) -----
+logger = logging.getLogger("auth.deps")
 
 # ----- Seguridad para Swagger/Docs: "Authorize" => Bearer <token> -----
-# auto_error=True => FastAPI devolverá 403 si falta Authorization; nosotros
-# igualmente enriquecemos los mensajes cuando hay token pero es inválido.
 security = HTTPBearer(auto_error=True)
+
 
 # ----- Sesión de BD -----
 def get_db() -> Generator[Session, None, None]:
+    """Propaga el generator de la capa de datos."""
     yield from get_session()
 
-# ----- Revocación opcional de tokens vía Redis (si está disponible) -----
-_redis_client = None  # lazy init
-
-def _get_redis():
-    global _redis_client
-    if _redis_client is not None:
-        return _redis_client
-    try:
-        import redis  # type: ignore
-        _redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
-    except Exception:
-        _redis_client = None  # Redis no disponible; seguimos sin revocación
-    return _redis_client
-
-def _is_token_revoked(jti: Optional[str]) -> bool:
-    if not jti:
-        return False
-    r = _get_redis()
-    if not r:
-        return False
-    try:
-        return r.exists(f"jwt:revoked:{jti}") == 1
-    except Exception:
-        # Si Redis falla, no bloqueamos por revocación
-        return False
 
 # ----- Dependencias de usuario actual (desde el token) -----
 def current_user(
     creds: HTTPAuthorizationCredentials = Depends(security),
 ) -> Dict[str, Any]:
     """
-    Extrae y valida el token Bearer. Devuelve un dict mínimo con:
-      { "id": <sub:int|str>, "role": <ROLE>, "jti": <id del token o None> }
+    Extrae y valida el token Bearer. Devuelve:
+      { "id": <sub:int|str>, "role": <ROLE>, "jti": <str|None> }
 
     Requisitos:
-    - Debe ser un token de tipo ACCESS (acepta claim 'typ' o 'type' == 'access').
-    - Respeta verificación condicional de ISS/AUD (config en settings).
-    - Aplica revocación opcional por Redis si 'jti' está presente.
+    - JWT válido (firma/exp/nbf…)
+    - type == "access"
+    - no revocado (Redis)
     """
     if not creds or not creds.credentials:
         raise HTTPException(
@@ -66,44 +48,61 @@ def current_user(
         )
 
     token = creds.credentials
+    # ---------- DEBUG TEMPORAL (diagnóstico de por qué sale 401) ----------
     try:
-        payload = decode_token(token, leeway_seconds=30)  # tolerancia de reloj
-    except Exception:
+        # Si sospechas de reloj/tiempos, puedes subir a 120
+        payload = decode_token(token, leeway_seconds=30)
+        logger.debug(
+            "JWT decodificado OK: sub=%s type=%s jti=%s iss=%s aud=%s",
+            payload.get("sub"),
+            payload.get("type") or payload.get("typ"),
+            payload.get("jti"),
+            payload.get("iss"),
+            payload.get("aud"),
+        )
+    except Exception as e:
+        logger.warning("JWT inválido (detalle verificación): %s", e)  # <--- QUITAR luego
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido",
-            headers={"WWW-Authenticate": "Bearer error='invalid_token'"},
-        )
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from e
+    # ---------- FIN DEBUG TEMPORAL ----------
 
-    # tipo de token: aceptamos 'typ' o 'type'
-    ttype = (payload.get("typ") or payload.get("type") or "access").lower()
-    if ttype != "access":
+    # Verifica tipo de token (solo 'access' aquí)
+    if not validate_token_type(payload, "access"):
+        logger.warning(  # <--- QUITAR luego si no quieres logs
+            "Token con tipo inesperado: got=%s (esperado=access)",
+            payload.get("type") or payload.get("typ"),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token no válido para acceso (se esperaba 'access')",
-            headers={"WWW-Authenticate": "Bearer error='invalid_token'"},
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # subject (usuario) obligatorio
-    sub = payload.get("sub")
-    if not sub:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token sin 'sub'",
-            headers={"WWW-Authenticate": "Bearer error='invalid_token'"},
-        )
-
-    # rol del token (fallback a OPERARIO)
-    role = (payload.get("role") or "OPERARIO").upper()
-
-    # revocación opcional (si hay jti)
+    # Revocación opcional (Redis)
     jti = payload.get("jti")
-    if _is_token_revoked(jti):
+    if is_revoked(jti):
+        logger.warning("Token revocado detectado: jti=%s", jti)  # <--- QUITAR luego
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token revocado",
-            headers={"WWW-Authenticate": "Bearer error='invalid_token'"},
+            headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # subject obligatorio
+    sub = payload.get("sub")
+    if sub is None:
+        logger.warning("Token sin 'sub' (payload=%s)", payload)  # <--- QUITAR luego
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token sin 'sub'",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # role del token (fallback a OPERARIO)
+    role = (payload.get("role") or "OPERARIO").upper()
 
     # intenta convertir sub a int si procede
     try:
@@ -112,6 +111,7 @@ def current_user(
         sub_cast = sub  # mantener como string si no es numérico
 
     return {"id": sub_cast, "role": role, "jti": jti}
+
 
 def current_active_user_obj(
     db: Session = Depends(get_db),
@@ -136,6 +136,7 @@ def current_active_user_obj(
         )
     return obj
 
+
 # ----- Autorización por rol -----
 def require_role(*roles: str, check_db: bool = False) -> Callable:
     """
@@ -151,6 +152,7 @@ def require_role(*roles: str, check_db: bool = False) -> Callable:
         db: Session = Depends(get_db),
         token_user: Dict[str, Any] = Depends(current_user),
     ):
+        # Camino rápido: usamos el rol del token
         if not check_db:
             role = token_user.get("role", "").upper()
             if role == "ADMIN":
@@ -162,7 +164,7 @@ def require_role(*roles: str, check_db: bool = False) -> Callable:
                 )
             return token_user
 
-        # check_db=True: comprobación en BD y usuario activo
+        # Camino estricto: comprobación en BD y usuario activo
         obj = db.get(Usuario, token_user.get("id"))
         if not obj:
             raise HTTPException(

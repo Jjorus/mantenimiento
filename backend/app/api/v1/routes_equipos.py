@@ -224,7 +224,7 @@ def listar_equipos(
     else:  # id_desc por defecto
         stmt = stmt.order_by(Equipo.id.desc())
 
-    total = db.exec(count_stmt).scalar_one()
+    total = db.exec(count_stmt).one()[0]
     response.headers["X-Total-Count"] = str(total)
 
     stmt = stmt.limit(limit).offset(offset)
@@ -311,7 +311,7 @@ def listar_equipos_sin_ubicacion(
     )
 
     count_stmt = select(func.count()).select_from(Equipo).where(Equipo.ubicacion_id.is_(None))
-    total = db.exec(count_stmt).scalar_one()
+    total = db.exec(count_stmt).one()
 
     response.headers["X-Total-Count"] = str(total)
     return db.exec(stmt).all()
@@ -457,7 +457,7 @@ def resumen_estadisticas(db: Session = Depends(get_db)):
     """
     Resumen estadístico de equipos.
     """
-    total = db.exec(select(func.count(Equipo.id))).scalar_one()
+    total = db.exec(select(func.count(Equipo.id))).one()
 
     # Evitar claves None en el dict final
     por_estado_rows = db.exec(
@@ -475,7 +475,7 @@ def resumen_estadisticas(db: Session = Depends(get_db)):
 
     sin_ubicacion = db.exec(
         select(func.count(Equipo.id)).where(Equipo.ubicacion_id.is_(None))
-    ).scalar_one()
+    ).one()
 
     return {
         "total_equipos": total,
