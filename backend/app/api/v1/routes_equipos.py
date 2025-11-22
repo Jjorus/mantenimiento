@@ -1,6 +1,6 @@
 # backend/app/api/v1/routes_equipos.py
 from typing import Optional, List, Dict, Any, Literal, get_args
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Request, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request, Query
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from sqlalchemy.exc import IntegrityError, DBAPIError
@@ -206,9 +206,8 @@ def listar_equipos(
             conds.append(Equipo.estado.in_(estados_validos))
 
     if conds:
-        for c in conds:
-            stmt = stmt.where(c)
-            count_stmt = count_stmt.where(c)
+        stmt = stmt.where(*conds)
+        count_stmt = count_stmt.where(*conds)
 
     # Ordenamiento (estable y con nulos al final en identidad)
     if ordenar == "id_asc":
@@ -224,7 +223,8 @@ def listar_equipos(
     else:  # id_desc por defecto
         stmt = stmt.order_by(Equipo.id.desc())
 
-    total = db.exec(count_stmt).one()[0]
+    # IMPORTANT: SQLModel con COUNT devuelve el escalar directamente
+    total = db.exec(count_stmt).one()
     response.headers["X-Total-Count"] = str(total)
 
     stmt = stmt.limit(limit).offset(offset)

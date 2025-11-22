@@ -13,7 +13,7 @@ from app.models.equipo import Equipo
 from app.models.ubicacion import Ubicacion
 from app.models.movimiento import Movimiento
 
-# >>> NUEVO: helpers de seguridad (NFC / RL / Idempotencia / Debounce)
+# Seguridad NFC / rate-limit / idempotencia
 from app.core.security import (
     assert_idempotent,
     assert_debounce,
@@ -41,16 +41,15 @@ class MovimientoBase(BaseModel):
     comentario: Optional[str] = Field(None, max_length=500, examples=["Entrega a operario"])
 
 class RetirarIn(MovimientoBase):
-    """Payload para retirar un equipo de su ubicación actual"""
+    """Payload para retirar un equipo de su ubicación actual."""
 
 class DevolverIn(MovimientoBase):
-    """Payload para devolver un equipo a una ubicación específica"""
+    """Payload para devolver un equipo a una ubicación específica."""
 
 class MovimientoPatchIn(BaseModel):
     comentario: Optional[str] = Field(None, max_length=500)
 
 # ---------- Core ----------
-
 def _mover_equipo(
     db: Session,
     equipo_id: int,
@@ -63,12 +62,11 @@ def _mover_equipo(
     - Usa begin_nested() si ya hay una tx abierta (evita 'A transaction is already begun').
     - Bloqueo pesimista con SELECT ... FOR UPDATE.
     """
-    # Elegir contexto transaccional adecuado (tx normal o savepoint)
     tx_ctx = db.begin_nested() if db.in_transaction() else db.begin()
 
     try:
         with tx_ctx:
-            # Bloqueo pesimista para evitar condiciones de carrera
+            # Bloqueo pesimista para evitar carreras
             eq = db.exec(
                 sa_select(Equipo).where(Equipo.id == equipo_id).with_for_update()
             ).scalar_one_or_none()
@@ -83,25 +81,23 @@ def _mover_equipo(
                     "type": "value_error.foreign_key",
                 }])
 
-            # Reglas de negocio de movibilidad
+            # Reglas de negocio
             if hasattr(eq, "puede_moverse"):
                 if not eq.puede_moverse:
                     raise HTTPException(
                         status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail="El equipo no puede moverse en su estado actual"
+                        detail="El equipo no puede moverse en su estado actual",
                     )
             else:
                 if getattr(eq, "estado", None) in {"BAJA"}:
                     raise HTTPException(
                         status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail="El equipo no puede moverse en su estado actual"
+                        detail="El equipo no puede moverse en su estado actual",
                     )
 
             if eq.ubicacion_id == nueva_ubicacion_id:
-                # 409: ya está en el destino
                 raise HTTPException(
-                    status.HTTP_409_CONFLICT,
-                    detail="El equipo ya se encuentra en esta ubicación"
+                    status.HTTP_409_CONFLICT, detail="El equipo ya se encuentra en esta ubicación"
                 )
 
             mov = Movimiento(
@@ -119,30 +115,29 @@ def _mover_equipo(
             db.add_all([mov, eq])
             db.flush()  # asegura IDs para refresco
 
-        # fuera del with: transacción OK (o savepoint confirmado)
+        # fuera del with: transacción/savepoint confirmados
         db.refresh(mov)
         return mov
 
     except OperationalError:
-        # deadlocks/timeouts → 503 temporal
         db.rollback()
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Error temporal de base de datos. Intente nuevamente."
+            detail="Error temporal de base de datos. Intente nuevamente.",
         )
     except IntegrityError:
         db.rollback()
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            detail="Conflicto de integridad (revise FK/estado)."
+            detail="Conflicto de integridad (revise FK/estado).",
         )
     except DBAPIError:
         db.rollback()
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno de base de datos"
+            detail="Error interno de base de datos",
         )
-    
+
 # ---------- Endpoints de acción ----------
 @router.post(
     "/retirar",
@@ -158,10 +153,7 @@ def retirar(
     db: Session = Depends(get_db),
     user=Depends(current_user),
 ):
-    """
-    Retirar equipo de su ubicación actual y moverlo a una nueva ubicación.
-    Típicamente usado cuando un técnico se lleva el equipo.
-    """
+    """Retira un equipo (lo mueve a otra ubicación)."""
     mov = _mover_equipo(db, payload.equipo_id, payload.hacia_ubicacion_id, payload.comentario, int(user["id"]))
     base_url = str(request.base_url).rstrip("/")
     response.headers["Location"] = f"{base_url}/api/v1/movimientos/{mov.id}"
@@ -182,10 +174,7 @@ def devolver(
     db: Session = Depends(get_db),
     user=Depends(current_user),
 ):
-    """
-    Devolver equipo a una ubicación específica (almacén, zona, etc.).
-    Típicamente usado cuando un técnico regresa el equipo.
-    """
+    """Devuelve un equipo a la ubicación indicada."""
     mov = _mover_equipo(db, payload.equipo_id, payload.hacia_ubicacion_id, payload.comentario, int(user["id"]))
     base_url = str(request.base_url).rstrip("/")
     response.headers["Location"] = f"{base_url}/api/v1/movimientos/{mov.id}"
@@ -212,14 +201,14 @@ def listar_movimientos(
     ordenar: str = Query("fecha_desc", description="fecha_desc|fecha_asc|id_desc|id_asc"),
 ):
     """
-    Listar movimientos con filtros, orden y paginación.
+    Lista movimientos con filtros, orden y paginación.
     Devuelve cabecera `X-Total-Count` con el total sin paginar.
     """
     if ordenar not in ALLOWED_ORDEN:
         _raise_422([{
             "loc": ["query", "ordenar"],
             "msg": f"Orden inválido. Válidos: {', '.join(sorted(ALLOWED_ORDEN))}",
-            "type": "value_error"
+            "type": "value_error",
         }])
 
     if desde and hasta and desde > hasta:
@@ -254,7 +243,7 @@ def listar_movimientos(
     else:  # fecha_desc
         data_stmt = data_stmt.order_by(Movimiento.fecha.desc(), Movimiento.id.desc())
 
-    total = db.exec(total_stmt).one()
+    total = db.exec(total_stmt).scalar_one()
     response.headers["X-Total-Count"] = str(total)
 
     data_stmt = data_stmt.limit(limit).offset(offset)
@@ -281,8 +270,9 @@ def historial_equipo(
     if not eq:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Equipo no encontrado")
 
-    total = db.exec(select(func.count()).select_from(Movimiento).where(Movimiento.equipo_id == equipo_id)).one()
-    
+    total = db.exec(
+        select(func.count()).select_from(Movimiento).where(Movimiento.equipo_id == equipo_id)
+    ).scalar_one()
     response.headers["X-Total-Count"] = str(total)
 
     stmt = (
@@ -301,9 +291,7 @@ def historial_equipo(
     dependencies=[Depends(require_role("MANTENIMIENTO", "ADMIN"))],
 )
 def obtener_movimiento(movimiento_id: int, db: Session = Depends(get_db)):
-    """
-    Obtener un movimiento por ID (roles: mantenimiento/admin).
-    """
+    """Obtener un movimiento por ID (roles: mantenimiento/admin)."""
     mov = db.get(Movimiento, movimiento_id)
     if not mov:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Movimiento no encontrado")
@@ -349,7 +337,6 @@ def actualizar_movimiento(
         db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error interno de base de datos")
 
-
 # ---------- NFC ----------
 class MovimientoNFCIn(BaseModel):
     nfc_tag: str = Field(..., min_length=1, max_length=64)
@@ -376,15 +363,13 @@ def retirar_por_nfc(
     db: Session = Depends(get_db),
     user=Depends(current_user),
 ):
-    # --- Seguridad NFC: idempotencia + debounce + rate limit ---
+    # Seguridad NFC: idempotencia + debounce + rate limit
     assert_idempotent(request, ttl_sec=30)
     assert_debounce(f"nfc:{user['id']}:{payload.nfc_tag}:retirar", ttl_sec=3)
     check_rate_limit_nfc(str(user["id"]), payload.nfc_tag, limit=5, window_sec=10)
 
     eq = _equipo_por_nfc_or_404(db, payload.nfc_tag)
-    mov = _mover_equipo(
-        db, eq.id, payload.hacia_ubicacion_id, payload.comentario, int(user["id"])
-    )
+    mov = _mover_equipo(db, eq.id, payload.hacia_ubicacion_id, payload.comentario, int(user["id"]))
     base_url = str(request.base_url).rstrip("/")
     response.headers["Location"] = f"{base_url}/api/v1/movimientos/{mov.id}"
     response.headers["Cache-Control"] = "no-store"
@@ -403,15 +388,13 @@ def devolver_por_nfc(
     db: Session = Depends(get_db),
     user=Depends(current_user),
 ):
-    # --- Seguridad NFC: idempotencia + debounce + rate limit ---
+    # Seguridad NFC: idempotencia + debounce + rate limit
     assert_idempotent(request, ttl_sec=30)
     assert_debounce(f"nfc:{user['id']}:{payload.nfc_tag}:devolver", ttl_sec=3)
     check_rate_limit_nfc(str(user["id"]), payload.nfc_tag, limit=5, window_sec=10)
 
     eq = _equipo_por_nfc_or_404(db, payload.nfc_tag)
-    mov = _mover_equipo(
-        db, eq.id, payload.hacia_ubicacion_id, payload.comentario, int(user["id"])
-    )
+    mov = _mover_equipo(db, eq.id, payload.hacia_ubicacion_id, payload.comentario, int(user["id"]))
     base_url = str(request.base_url).rstrip("/")
     response.headers["Location"] = f"{base_url}/api/v1/movimientos/{mov.id}"
     response.headers["Cache-Control"] = "no-store"

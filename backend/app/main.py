@@ -2,7 +2,7 @@
 import time
 import redis
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Final, Dict, Any
 
 from fastapi import FastAPI, Request, Depends
@@ -30,9 +30,9 @@ OPENAPI_TAGS: Final = [
     {"name": "movimientos", "description": "Movimientos entre ubicaciones (retirar/devolver)."},
     {"name": "reparaciones", "description": "Gestión de reparaciones de equipos."},
     {"name": "ubicaciones", "description": "Zonas/almacenes/operarios como ubicaciones lógicas."},
+    {"name": "usuarios", "description": "Gestión de usuarios y perfil (/me)."},
     {"name": "auth", "description": "Autenticación y emisión/refresh de tokens."},
     {"name": "_meta", "description": "Endpoints internos de salud y meta."},
-    
 ]
 
 @asynccontextmanager
@@ -98,18 +98,19 @@ from app.api.v1.routes_equipos import router as equipos_router
 from app.api.v1.routes_ubicaciones import router as ubic_router
 from app.api.v1.routes_incidencias import router as incidencias_router
 from app.api.v1.routes_movimientos import router as movimientos_router
-from app.api.v1.routes_reparaciones import router as reparaciones_router  # ya integrado
+from app.api.v1.routes_reparaciones import router as reparaciones_router
 from app.api.v1.routes_secciones import router as secciones_router
+from app.api.v1.routes_usuarios import router as usuarios_router
 
 # Prefijos coherentes (usa settings.* para no duplicar)
-app.include_router(auth_router,        prefix=settings.API_PREFIX,    tags=["auth"])        # /api/auth/...
-app.include_router(equipos_router,     prefix=settings.API_V1_PREFIX)                       # /api/v1/equipos
-app.include_router(ubic_router,        prefix=settings.API_V1_PREFIX)                       # /api/v1/ubicaciones
-app.include_router(incidencias_router, prefix=settings.API_V1_PREFIX)                       # /api/v1/incidencias
-app.include_router(movimientos_router, prefix=settings.API_V1_PREFIX)                       # /api/v1/movimientos
-app.include_router(reparaciones_router,prefix=settings.API_V1_PREFIX)                       # /api/v1/reparaciones
-app.include_router(secciones_router, prefix=settings.API_V1_PREFIX)
-
+app.include_router(auth_router,         prefix=settings.API_PREFIX,    tags=["auth"])        # /api/auth/...
+app.include_router(equipos_router,      prefix=settings.API_V1_PREFIX)                       # /api/v1/equipos
+app.include_router(ubic_router,         prefix=settings.API_V1_PREFIX)                       # /api/v1/ubicaciones
+app.include_router(incidencias_router,  prefix=settings.API_V1_PREFIX)                       # /api/v1/incidencias
+app.include_router(movimientos_router,  prefix=settings.API_V1_PREFIX)                       # /api/v1/movimientos
+app.include_router(reparaciones_router, prefix=settings.API_V1_PREFIX)                       # /api/v1/reparaciones
+app.include_router(secciones_router,    prefix=settings.API_V1_PREFIX)                       # /api/v1/secciones
+app.include_router(usuarios_router,     prefix=settings.API_V1_PREFIX)                       # /api/v1/usuarios
 
 # ---------- Endpoints de sistema ----------
 @app.get("/", include_in_schema=False, response_class=PlainTextResponse)
@@ -127,7 +128,7 @@ def health(db: Session = Depends(get_session)):
 
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "environment": settings.APP_ENV,
         "database": db_status,
         "version": settings.VERSION,
@@ -138,7 +139,7 @@ def version():
     return {
         "version": settings.VERSION,
         "environment": settings.APP_ENV,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 @app.get("/_meta/redis", tags=["_meta"])
@@ -159,7 +160,6 @@ def redis_health() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Redis health failed: {e}")
         return {"ok": False, "error": str(e)}
-
 
 # ---------- Manejadores globales de errores ----------
 @app.exception_handler(IntegrityError)

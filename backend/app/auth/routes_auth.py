@@ -3,7 +3,7 @@ import logging
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
@@ -18,6 +18,7 @@ from app.core.security import (
     is_revoked,
     decode_token,
     validate_token_type,
+    try_decode_token,
 )
 from app.core.rate_limit import (
     is_locked as rl_is_locked,
@@ -30,7 +31,8 @@ from app.models.usuario import Usuario
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-bearer = HTTPBearer(auto_error=True)
+# auto_error=False para poder decidir en cada endpoint si el Bearer es opcional u obligatorio
+bearer = HTTPBearer(auto_error=False)
 
 
 # ---------------------------
@@ -65,15 +67,21 @@ class LogoutIn(BaseModel):
 def _db_user_by_username_or_email(db: Session, username_or_email: str) -> Optional[Usuario]:
     key = (username_or_email or "").strip()
     # Con CITEXT en username/email, la comparación ya es case-insensitive.
-    stmt = (
-        select(Usuario)
-        .where((Usuario.email == key) | (Usuario.username == key))
-        .limit(1)
-    )
+    stmt = select(Usuario).where((Usuario.email == key) | (Usuario.username == key)).limit(1)
     return db.exec(stmt).first()
 
 
 def _client_ip(req: Request) -> str:
+    # Respeta proxy inverso si existe
+    xfwd = req.headers.get("x-forwarded-for")
+    if xfwd:
+        # Toma el primer IP de la lista
+        ip = xfwd.split(",")[0].strip()
+        if ip:
+            return ip
+    xreal = req.headers.get("x-real-ip")
+    if xreal:
+        return xreal.strip()
     return req.client.host if req.client else "unknown"
 
 
@@ -112,7 +120,7 @@ def _auth_401(detail: str) -> HTTPException:
 # Endpoints
 # ---------------------------
 @router.post("/login", response_model=TokenOut)
-def login(payload: LoginIn, req: Request, db: Session = Depends(get_db)) -> TokenOut:
+def login(payload: LoginIn, req: Request, resp: Response, db: Session = Depends(get_db)) -> TokenOut:
     ip = _client_ip(req)
     user_key = _norm_login_key(payload.username_or_email)
 
@@ -121,7 +129,7 @@ def login(payload: LoginIn, req: Request, db: Session = Depends(get_db)) -> Toke
     if locked:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Demasiados intentos. Intente en {ttl}s"
+            detail=f"Demasiados intentos. Intente en {ttl}s",
         )
 
     # Buscar usuario y verificar credenciales
@@ -140,6 +148,10 @@ def login(payload: LoginIn, req: Request, db: Session = Depends(get_db)) -> Toke
         extra={"event": "auth_login_ok", "user_id": user.id, "username": user.username, "ip": ip},
     )
 
+    # No cachear respuesta con tokens
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["Pragma"] = "no-cache"
+
     return TokenOut(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -148,13 +160,16 @@ def login(payload: LoginIn, req: Request, db: Session = Depends(get_db)) -> Toke
 
 
 @router.post("/refresh", response_model=RefreshOut)
-def refresh_token(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> RefreshOut:
+def refresh_token(resp: Response, creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer)) -> RefreshOut:
     """
-    Renueva access token usando refresh token.
-    Implementa rotación de refresh tokens:
-      - Revoca el refresh usado (con TTL exacto restante)
+    Renueva access token usando refresh token (en Authorization: Bearer).
+    Rotación de refresh:
+      - Revoca el refresh usado (con TTL restante)
       - Devuelve nuevo par (access + refresh)
     """
+    if not creds or not creds.credentials:
+        raise _auth_401("Falta token en Authorization")
+
     token = creds.credentials
 
     try:
@@ -184,6 +199,10 @@ def refresh_token(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> Refr
     new_access_token, new_refresh_token, _, _ = issue_token_pair(sub, role)
     logger.info("Tokens refrescados", extra={"event": "auth_refresh_ok", "sub": sub, "role": role})
 
+    # No cachear respuesta con tokens
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["Pragma"] = "no-cache"
+
     return RefreshOut(
         access_token=new_access_token,
         refresh_token=new_refresh_token,
@@ -194,13 +213,17 @@ def refresh_token(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> Refr
 @router.post("/logout")
 def logout(
     payload: LogoutIn = LogoutIn(),  # body opcional
-    creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer),
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer),  # Bearer opcional
 ):
     """
     Revoca el access token actual (Authorization: Bearer)
     y opcionalmente un refresh token pasado en el body.
+    Si no se proporciona ninguno, 400.
     """
     revoked_count = 0
+
+    if (not creds or not creds.credentials) and not payload.refresh_token:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Proporcione Authorization Bearer y/o refresh_token")
 
     # Revocar access token del header
     if creds and creds.credentials:
@@ -211,9 +234,10 @@ def logout(
             access_claims = _decode_unverified(creds.credentials)
 
         if access_claims.get("jti"):
-            if revoke_token_by_payload(access_claims):
-                revoked_count += 1
-                logger.info("Access token revocado", extra={"event": "auth_logout_access", "jti": access_claims["jti"]})
+            # Es válido revocar aunque no sea 'access', pero lo normal es ACCESS aquí
+            revoke_token_by_payload(access_claims)
+            revoked_count += 1
+            logger.info("Access token revocado", extra={"event": "auth_logout_access", "jti": access_claims.get("jti")})
 
     # Revocar refresh token del body (si se proporciona)
     if payload.refresh_token:
@@ -222,17 +246,17 @@ def logout(
         except JWTError:
             refresh_claims = _decode_unverified(payload.refresh_token)
 
-        if validate_token_type(refresh_claims, "refresh") and refresh_claims.get("jti"):
-            if revoke_token_by_payload(refresh_claims):
-                revoked_count += 1
-                logger.info("Refresh token revocado", extra={"event": "auth_logout_refresh", "jti": refresh_claims["jti"]})
+        if refresh_claims.get("jti"):
+            revoke_token_by_payload(refresh_claims)
+            revoked_count += 1
+            logger.info("Refresh token revocado", extra={"event": "auth_logout_refresh", "jti": refresh_claims.get("jti")})
 
     return {"detail": "Sesión cerrada", "tokens_revocados": revoked_count}
 
 
 @router.post("/logout-all")
 def logout_all(
-    creds: HTTPAuthorizationCredentials = Depends(bearer),
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer),
     db: Session = Depends(get_db),
 ):
     """
@@ -240,6 +264,9 @@ def logout_all(
     Nota: para revocar *todos* los tokens de un usuario de forma efectiva
     habría que mantener un set de JTI por usuario en Redis (pendiente de implementar).
     """
+    if not creds or not creds.credentials:
+        raise _auth_401("Falta token en Authorization")
+
     token = creds.credentials
     try:
         claims = decode_token(token, leeway_seconds=30)
@@ -263,9 +290,10 @@ def logout_all(
         "user_id": user_id,
         "mensaje": "Token actual revocado. Para revocar todos los tokens activos, implementa tracking de JTI por usuario.",
     }
+
+
 @router.post("/debug/decode")
 def debug_decode(token: str):
-    from app.core.security import try_decode_token
     payload, err = try_decode_token(token, leeway_seconds=120)
     if err:
         return {"ok": False, "error": err}

@@ -270,15 +270,16 @@ def resumen_ubicaciones(db: Session = Depends(get_db)):
     """
     Resumen rápido: total ubicaciones y por sección (si existe).
     """
-    total = db.exec(select(func.count(Ubicacion.id))).scalar_one()
+    total = db.exec(select(func.count(Ubicacion.id))).one()
 
     if hasattr(Ubicacion, "seccion_id"):
-        por_seccion = db.exec(
+        por_seccion_rows = db.exec(
             select(Ubicacion.seccion_id, func.count(Ubicacion.id))
             .group_by(Ubicacion.seccion_id)
             .order_by(func.count(Ubicacion.id).desc())
         ).all()
-        por_seccion = {str(k): v for k, v in por_seccion}
+        # Limpia claves None
+        por_seccion = {str(k): v for k, v in por_seccion_rows if k is not None}
     else:
         por_seccion = {}
 
