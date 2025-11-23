@@ -10,7 +10,7 @@ class ApiException implements Exception {
   });
 
   @override
-  String toString() => 'ApiException($statusCode): $message';
+  String toString() => message;
 }
 
 class AuthException extends ApiException {

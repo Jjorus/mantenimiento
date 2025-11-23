@@ -25,7 +25,7 @@ class DioClient {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          // Inyectar Token automáticamente si existe y no está vacío
+          // Inyectar Token si existe
           final token = await _storageService.getToken();
           if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
@@ -36,12 +36,10 @@ class DioClient {
           final statusCode = e.response?.statusCode;
           final data = e.response?.data;
 
-          // Transformación de errores HTTP a excepciones de Dominio
           Exception customError;
 
           switch (statusCode) {
             case 401:
-              // Token inválido/expirado -> Limpieza preventiva
               await _storageService.clearAll();
               customError = AuthException();
               break;
@@ -63,7 +61,6 @@ class DioClient {
               );
           }
           
-          // Propagamos el error customizado dentro del wrapper de Dio
           return handler.next(DioException(
             requestOptions: e.requestOptions,
             error: customError,

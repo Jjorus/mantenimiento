@@ -1,56 +1,69 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+// Core
 import 'core/api/dio_client.dart';
 import 'core/services/storage_service.dart';
 import 'core/theme/app_theme.dart';
+import 'core/router/app_router.dart';
+
+// Data
+import 'data/datasources/auth_remote_ds.dart';
+import 'data/repositories/auth_repository.dart';
+
+// Logic
+import 'logic/auth_cubit/auth_cubit.dart';
 
 void main() {
-  // Asegura que el motor gráfico de Flutter esté listo antes de lógica
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 1. Inyección de Dependencias (Manual)
-  // Inicializamos los servicios que usará toda la app
   final storageService = StorageService();
   final dioClient = DioClient(storageService);
+  final authRemoteDs = AuthRemoteDataSource(dioClient);
+  final authRepository = AuthRepository(
+    remoteDs: authRemoteDs,
+    storage: storageService,
+  );
 
-  // 2. Arrancamos la App pasando las dependencias
-  runApp(MyApp(dioClient: dioClient));
+  runApp(MyApp(authRepository: authRepository));
 }
 
 class MyApp extends StatelessWidget {
-  final DioClient dioClient;
+  final AuthRepository authRepository;
 
-  const MyApp({super.key, required this.dioClient});
+  const MyApp({super.key, required this.authRepository});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Mantenimiento App',
-      
-      // Quitamos la etiqueta "DEBUG" de la esquina
-      debugShowCheckedModeBanner: false,
-
-      // Configuración de Temas (Clean Lab vs Industrial Dark)
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      
-      // Usa el modo del sistema (si Windows está en oscuro, la app también)
-      themeMode: ThemeMode.system,
-
-      // Pantalla temporal hasta que hagamos el Login (Fase 2)
-      home: const Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.check_circle, size: 64, color: Colors.green),
-              SizedBox(height: 16),
-              Text(
-                "Fase 1: Infraestructura OK",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              Text("Listo para implementar Login"),
-            ],
+    return MultiRepositoryProvider(
+      providers: [
+        RepositoryProvider<AuthRepository>.value(value: authRepository),
+      ],
+      child: MultiBlocProvider(
+        providers: [
+          BlocProvider<AuthCubit>(
+            create: (context) => AuthCubit(
+              context.read<AuthRepository>(),
+            ),
           ),
+        ],
+        // Usamos Builder para tener contexto con los Providers ya disponibles
+        child: Builder(
+          builder: (context) {
+            // Inyectamos el AuthCubit en el router para redirecciones
+            final router = AppRouter.router(context.read<AuthCubit>());
+
+            return MaterialApp.router(
+              title: 'Mantenimiento App',
+              debugShowCheckedModeBanner: false,
+              theme: AppTheme.lightTheme,
+              darkTheme: AppTheme.darkTheme,
+              themeMode: ThemeMode.system,
+              
+              // Configuración de GoRouter
+              routerConfig: router,
+            );
+          },
         ),
       ),
     );

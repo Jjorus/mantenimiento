@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
-  // Paleta
   static const Color primaryBlue = Color(0xFF0056B3);
-  static const Color secondaryTeal = Color(0xFF00A8E8);
-  
+  // ... otros colores ...
+
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
@@ -14,11 +12,17 @@ class AppTheme {
         brightness: Brightness.light
       ),
       scaffoldBackgroundColor: const Color(0xFFF8F9FA),
-      textTheme: GoogleFonts.robotoTextTheme(),
+      
+      // IMPORTANTE: Usar Typography.material2021() en lugar de GoogleFonts
+      typography: Typography.material2021(),
+      
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.white,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        // Aseguramos color de texto visible
+        labelStyle: const TextStyle(color: Colors.black87),
+        hintStyle: const TextStyle(color: Colors.black38),
       ),
     );
   }
@@ -31,11 +35,16 @@ class AppTheme {
         brightness: Brightness.dark
       ),
       scaffoldBackgroundColor: const Color(0xFF121212),
-      textTheme: GoogleFonts.robotoTextTheme(ThemeData.dark().textTheme),
+      
+      // IMPORTANTE: Typography nativa
+      typography: Typography.material2021(platform: TargetPlatform.android),
+      
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: const Color(0xFF1E1E1E),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        labelStyle: const TextStyle(color: Colors.white70),
+        hintStyle: const TextStyle(color: Colors.white38),
       ),
     );
   }
