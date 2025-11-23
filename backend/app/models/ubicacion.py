@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Index,
     UniqueConstraint,
+    CheckConstraint,
     func,
 )
 from pydantic import ConfigDict
@@ -18,7 +19,9 @@ from pydantic import ConfigDict
 if TYPE_CHECKING:
     from .seccion import Seccion
     from .equipo import Equipo
-    from .movimiento import Movimiento  # <- añadir para hints
+    from .movimiento import Movimiento  # <- para hints
+    from .usuario import Usuario        # <- NUEVO: relación con usuario técnico
+
 
 class Ubicacion(SQLModel, table=True):
     """
@@ -26,6 +29,7 @@ class Ubicacion(SQLModel, table=True):
     - Unicidad por sección + nombre.
     - Timestamps UTC con server_default/onupdate.
     - Índices útiles para listados y búsquedas.
+    - Puede estar asociada a un usuario (técnico) cuando tipo='TECNICO'.
     """
     model_config = ConfigDict(from_attributes=True)
 
@@ -33,6 +37,10 @@ class Ubicacion(SQLModel, table=True):
         UniqueConstraint("seccion_id", "nombre", name="uq_ubicacion_seccion_nombre"),
         Index("ix_ubicacion_nombre", "nombre"),
         Index("ix_ubicacion_seccion", "seccion_id"),
+        CheckConstraint(
+            "tipo in ('ALMACEN','LABORATORIO','TECNICO','OTRO')",
+            name="ck_ubicacion_tipo",
+        ),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -52,6 +60,29 @@ class Ubicacion(SQLModel, table=True):
             nullable=True,
         ),
         description="Sección a la que pertenece (opcional)",
+    )
+
+    # --- Clasificación de la ubicación ---
+    tipo: str = Field(
+        default="OTRO",
+        sa_column=Column(
+            String(20),
+            nullable=False,
+            server_default="OTRO",
+        ),
+        description="Tipo lógico: ALMACEN|LABORATORIO|TECNICO|OTRO",
+    )
+
+    # Si es una ubicación personal de técnico, enlaza al usuario
+    usuario_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("usuario.id", ondelete="SET NULL"),
+            nullable=True,
+            unique=True,  # cada usuario técnico sólo puede tener una ubicación asociada
+        ),
+        description="Usuario asociado cuando la ubicación representa a un técnico",
     )
 
     # --- Timestamps (UTC) ---
@@ -93,5 +124,14 @@ class Ubicacion(SQLModel, table=True):
         },
     )
 
+    # NUEVA relación inversa hacia Usuario (ubicación de técnico)
+    usuario: Optional["Usuario"] = Relationship(
+        back_populates="ubicacion_asociada",
+        sa_relationship_kwargs={"foreign_keys": "[Ubicacion.usuario_id]"},
+    )
+
     def __repr__(self) -> str:
-        return f"<Ubicacion {self.id} nombre={self.nombre!r} seccion_id={self.seccion_id}>"
+        return (
+            f"<Ubicacion {self.id} nombre={self.nombre!r} "
+            f"seccion_id={self.seccion_id} tipo={self.tipo!r} usuario_id={self.usuario_id}>"
+        )

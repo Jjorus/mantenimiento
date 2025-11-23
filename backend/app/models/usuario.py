@@ -1,8 +1,8 @@
 # app/models/usuario.py
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from datetime import datetime, timezone
 
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Relationship
 from sqlalchemy import (
     Column,
     String,
@@ -15,6 +15,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import CITEXT  # requiere extensión citext
 from pydantic import ConfigDict
+
+if TYPE_CHECKING:
+    from .ubicacion import Ubicacion
 
 
 class Usuario(SQLModel, table=True):
@@ -133,6 +136,13 @@ class Usuario(SQLModel, table=True):
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True), nullable=False, server_default=func.now()),
         description="Cuándo se cambió la contraseña por última vez",
+    )
+
+    # --- Relaciones ---
+    # Ubicación asociada cuando el usuario actúa como técnico
+    ubicacion_asociada: Optional["Ubicacion"] = Relationship(
+        back_populates="usuario",
+        sa_relationship_kwargs={"uselist": False},
     )
 
     # --- Utilidades (no guardan estado) ---

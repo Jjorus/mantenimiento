@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     # --- App ---
     APP_NAME: str = "Mantenimiento API"
-    APP_ENV: Literal["dev", "staging", "prod"] = "dev"
+    APP_ENV: Literal["dev", "staging", "prod", "test"] = "dev"
     VERSION: str = "1.0.0"
     LOG_LEVEL: str = "INFO"
     DOCS_ENABLED: bool = True
@@ -28,7 +28,6 @@ class Settings(BaseSettings):
     # Paginación
     PAGE_DEFAULT_LIMIT: int = 50
     PAGE_MAX_LIMIT: int = 200
-
 
     # --- Seguridad / JWT ---
     SECRET_KEY: SecretStr = Field("dev_change_me_32_chars_min", min_length=32)
@@ -82,6 +81,11 @@ class Settings(BaseSettings):
     REQUEST_TIMEOUT: int = 30
     KEEP_ALIVE: int = 5
 
+    # --- Ficheros / almacenamiento ---
+    # Directorio base donde se guardan las facturas subidas (PDF/JPG/etc.).
+    # Se puede sobrescribir vía env: FACTURAS_DIR=/ruta/que/quieras
+    FACTURAS_DIR: str = "data/facturas"
+
     @model_validator(mode="after")
     def _apply_cors_from_raw(self):
         raw = self.CORS_ALLOWED_ORIGINS_RAW
@@ -117,7 +121,6 @@ class Settings(BaseSettings):
         """CSV con orígenes CORS permitido (backwards compatibility)."""
         return ",".join(self.cors_allowed_origins_as_str)
 
-
     @property
     def is_development(self) -> bool:
         """Verifica si el entorno es desarrollo."""
@@ -137,6 +140,11 @@ class Settings(BaseSettings):
     def should_use_https(self) -> bool:
         """Determina si se debe forzar HTTPS."""
         return self.is_production or self.FORCE_HTTPS
+
+    @property
+    def is_testing(self) -> bool:
+        """Verifica si el entorno es testing."""
+        return self.APP_ENV == "test"
 
 
 settings = Settings()

@@ -29,10 +29,13 @@ def _norm_str(s: Optional[str]) -> Optional[str]:
     s2 = s.strip()
     return s2 or None
 
+
 def _raise_422(errors: List[Dict[str, Any]]) -> None:
     raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=errors)
 
+
 ALLOWED_ORDEN = {"fecha_desc", "fecha_asc", "id_desc", "id_asc"}
+
 
 # ---------- Schemas ----------
 class MovimientoBase(BaseModel):
@@ -40,14 +43,29 @@ class MovimientoBase(BaseModel):
     hacia_ubicacion_id: int = Field(..., gt=0, examples=[3])
     comentario: Optional[str] = Field(None, max_length=500, examples=["Entrega a operario"])
 
+
 class RetirarIn(MovimientoBase):
     """Payload para retirar un equipo de su ubicación actual."""
+
 
 class DevolverIn(MovimientoBase):
     """Payload para devolver un equipo a una ubicación específica."""
 
+
 class MovimientoPatchIn(BaseModel):
     comentario: Optional[str] = Field(None, max_length=500)
+
+
+# NUEVOS: para retirar como técnico (backend decide ubicación)
+class MovimientoTecnicoIn(BaseModel):
+    equipo_id: int = Field(..., gt=0, examples=[1])
+    comentario: Optional[str] = Field(None, max_length=500)
+
+
+class MovimientoTecnicoNFCIn(BaseModel):
+    nfc_tag: str = Field(..., min_length=1, max_length=64)
+    comentario: Optional[str] = Field(None, max_length=500)
+
 
 # ---------- Core ----------
 def _mover_equipo(
@@ -138,6 +156,26 @@ def _mover_equipo(
             detail="Error interno de base de datos",
         )
 
+
+def _get_ubicacion_tecnico_or_422(db: Session, user_id: int) -> Ubicacion:
+    """
+    Devuelve la ubicación asociada al técnico, o lanza 422 si no está configurada.
+    """
+    ubi = db.exec(
+        select(Ubicacion).where(
+            Ubicacion.usuario_id == user_id,
+            Ubicacion.tipo == "TECNICO",
+        )
+    ).first()
+    if not ubi:
+        _raise_422([{
+            "loc": ["body", "hacia_ubicacion_id"],
+            "msg": "El usuario no tiene ubicación de técnico configurada",
+            "type": "value_error.tecnico_ubicacion_missing",
+        }])
+    return ubi
+
+
 # ---------- Endpoints de acción ----------
 @router.post(
     "/retirar",
@@ -160,6 +198,7 @@ def retirar(
     response.headers["Cache-Control"] = "no-store"
     return mov
 
+
 @router.post(
     "/devolver",
     response_model=Movimiento,
@@ -180,6 +219,37 @@ def devolver(
     response.headers["Location"] = f"{base_url}/api/v1/movimientos/{mov.id}"
     response.headers["Cache-Control"] = "no-store"
     return mov
+
+
+# NUEVO: retirar como técnico (el backend decide la ubicación en base al usuario)
+@router.post(
+    "/retirar/me",
+    response_model=Movimiento,
+    response_model_exclude_none=True,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_role("OPERARIO", "MANTENIMIENTO", "ADMIN"))],
+)
+def retirar_como_tecnico(
+    payload: MovimientoTecnicoIn,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(current_user),
+):
+    """
+    Retira un equipo asignándolo automáticamente a la ubicación del técnico
+    asociada al usuario autenticado.
+    """
+    assert_idempotent(request, ttl_sec=30)
+
+    ubi_tecnico = _get_ubicacion_tecnico_or_422(db, int(user["id"]))
+    mov = _mover_equipo(db, payload.equipo_id, ubi_tecnico.id, payload.comentario, int(user["id"]))
+
+    base_url = str(request.base_url).rstrip("/")
+    response.headers["Location"] = f"{base_url}/api/v1/movimientos/{mov.id}"
+    response.headers["Cache-Control"] = "no-store"
+    return mov
+
 
 # ---------- Listados & lectura ----------
 @router.get(
@@ -249,6 +319,7 @@ def listar_movimientos(
     data_stmt = data_stmt.limit(limit).offset(offset)
     return db.exec(data_stmt).all()
 
+
 @router.get(
     "/equipo/{equipo_id}",
     response_model=list[Movimiento],
@@ -284,6 +355,7 @@ def historial_equipo(
     )
     return db.exec(stmt).all()
 
+
 @router.get(
     "/{movimiento_id}",
     response_model=Movimiento,
@@ -296,6 +368,7 @@ def obtener_movimiento(movimiento_id: int, db: Session = Depends(get_db)):
     if not mov:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Movimiento no encontrado")
     return mov
+
 
 @router.patch(
     "/{movimiento_id}",
@@ -337,11 +410,13 @@ def actualizar_movimiento(
         db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error interno de base de datos")
 
+
 # ---------- NFC ----------
 class MovimientoNFCIn(BaseModel):
     nfc_tag: str = Field(..., min_length=1, max_length=64)
     hacia_ubicacion_id: int = Field(..., gt=0)
     comentario: Optional[str] = Field(None, max_length=500)
+
 
 def _equipo_por_nfc_or_404(db: Session, nfc_tag: str) -> Equipo:
     tag = (nfc_tag or "").strip().lower()
@@ -349,6 +424,7 @@ def _equipo_por_nfc_or_404(db: Session, nfc_tag: str) -> Equipo:
     if not eq:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe equipo con ese nfc_tag")
     return eq
+
 
 @router.post(
     "/retirar/nfc",
@@ -374,6 +450,38 @@ def retirar_por_nfc(
     response.headers["Location"] = f"{base_url}/api/v1/movimientos/{mov.id}"
     response.headers["Cache-Control"] = "no-store"
     return mov
+
+
+@router.post(
+    "/retirar/me/nfc",
+    response_model=Movimiento,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_role("OPERARIO", "MANTENIMIENTO", "ADMIN"))],
+)
+def retirar_como_tecnico_por_nfc(
+    payload: MovimientoTecnicoNFCIn,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(current_user),
+):
+    """
+    Variante NFC: el técnico escanea el equipo y se asigna automáticamente
+    a su ubicación personal.
+    """
+    assert_idempotent(request, ttl_sec=30)
+    assert_debounce(f"nfc:{user['id']}:{payload.nfc_tag}:retirar_me", ttl_sec=3)
+    check_rate_limit_nfc(str(user["id"]), payload.nfc_tag, limit=5, window_sec=10)
+
+    eq = _equipo_por_nfc_or_404(db, payload.nfc_tag)
+    ubi_tecnico = _get_ubicacion_tecnico_or_422(db, int(user["id"]))
+    mov = _mover_equipo(db, eq.id, ubi_tecnico.id, payload.comentario, int(user["id"]))
+
+    base_url = str(request.base_url).rstrip("/")
+    response.headers["Location"] = f"{base_url}/api/v1/movimientos/{mov.id}"
+    response.headers["Cache-Control"] = "no-store"
+    return mov
+
 
 @router.post(
     "/devolver/nfc",
