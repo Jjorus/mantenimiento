@@ -44,7 +44,7 @@ dependencies:
   json_annotation: ^4.9.0
   google_fonts: ^6.3.2
   font_awesome_flutter: ^10.9.1
-  nfc_manager: ^4.0.2
+  nfc_manager: ^3.3.0
   pluto_grid: ^8.0.0
 
 dev_dependencies:
