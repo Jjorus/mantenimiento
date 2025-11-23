@@ -1,5 +1,5 @@
 # backend/app/api/v1/routes_ubicaciones.py
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request, Query
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
@@ -9,11 +9,15 @@ from sqlalchemy import func
 from app.core.deps import get_db, current_user, require_role
 from app.models.ubicacion import Ubicacion
 from app.models.seccion import Seccion
+from app.models.usuario import Usuario
 
 router = APIRouter(prefix="/ubicaciones", tags=["ubicaciones"])
 
 # ---------- Helpers ----------
 ALLOWED_ORDEN = {"id_desc", "id_asc", "nombre_asc", "nombre_desc", "creado_desc", "creado_asc"}
+
+TipoUbicacionLiteral = Literal["ALMACEN", "LABORATORIO", "TECNICO", "OTRO"]
+
 
 def _norm(s: Optional[str]) -> Optional[str]:
     if s is None:
@@ -21,17 +25,29 @@ def _norm(s: Optional[str]) -> Optional[str]:
     s2 = s.strip()
     return s2 or None
 
+
 def _raise_422(errors: List[Dict[str, Any]]) -> None:
     raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=errors)
+
 
 # ---------- Schemas ----------
 class UbicacionCreateIn(BaseModel):
     nombre: str = Field(..., min_length=2, max_length=150, examples=["Almacén Central"])
     seccion_id: Optional[int] = Field(None, gt=0)
+    tipo: TipoUbicacionLiteral = Field("OTRO")
+    usuario_id: Optional[int] = Field(
+        None,
+        gt=0,
+        description="Sólo tiene sentido cuando tipo='TECNICO'",
+    )
+
 
 class UbicacionUpdateIn(BaseModel):
     nombre: Optional[str] = Field(None, min_length=2, max_length=150)
     seccion_id: Optional[int] = Field(None, gt=0)
+    tipo: Optional[TipoUbicacionLiteral] = None
+    usuario_id: Optional[int] = Field(None, gt=0)
+
 
 # ---------- Endpoints ----------
 @router.post(
@@ -51,6 +67,7 @@ def crear_ubicacion(
     Crea una ubicación.
     - Normaliza `nombre`.
     - Verifica FK de `seccion_id` si se envía.
+    - Valida `tipo` y `usuario_id` para ubicaciones de técnico.
     - Maneja unicidad de `nombre`.
     """
     errors: List[Dict[str, Any]] = []
@@ -61,6 +78,30 @@ def crear_ubicacion(
     if payload.seccion_id is not None and not db.get(Seccion, payload.seccion_id):
         errors.append({"loc": ["body", "seccion_id"], "msg": "Sección inexistente", "type": "value_error.foreign_key"})
 
+    # Validación de usuario_id si viene
+    if payload.usuario_id is not None:
+        user_obj = db.get(Usuario, payload.usuario_id)
+        if not user_obj:
+            errors.append(
+                {"loc": ["body", "usuario_id"], "msg": "Usuario inexistente", "type": "value_error.foreign_key"}
+            )
+        elif user_obj.role not in {"OPERARIO", "MANTENIMIENTO"}:
+            errors.append(
+                {
+                    "loc": ["body", "usuario_id"],
+                    "msg": "Sólo se pueden asociar usuarios técnicos (OPERARIO/MANTENIMIENTO)",
+                    "type": "value_error",
+                }
+            )
+        elif payload.tipo != "TECNICO":
+            errors.append(
+                {
+                    "loc": ["body", "tipo"],
+                    "msg": "usuario_id sólo es válido cuando tipo='TECNICO'",
+                    "type": "value_error",
+                }
+            )
+
     # Pre-chequeo de unicidad (UX). La BD lo refuerza con UNIQUE.
     if nombre:
         existe = db.exec(select(Ubicacion).where(Ubicacion.nombre == nombre)).first()
@@ -70,7 +111,12 @@ def crear_ubicacion(
     if errors:
         _raise_422(errors)
 
-    obj = Ubicacion(nombre=nombre, seccion_id=payload.seccion_id)
+    obj = Ubicacion(
+        nombre=nombre,
+        seccion_id=payload.seccion_id,
+        tipo=payload.tipo,
+        usuario_id=payload.usuario_id,
+    )
 
     try:
         db.add(obj)
@@ -78,7 +124,10 @@ def crear_ubicacion(
         db.refresh(obj)
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="Conflicto de integridad (nombre duplicado o FK inválida)")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Conflicto de integridad (nombre duplicado, tipo inválido o FK inválida)",
+        )
     except DBAPIError:
         db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error interno de base de datos")
@@ -185,8 +234,8 @@ def actualizar_ubicacion(
     user=Depends(current_user),
 ):
     """
-    Actualiza nombre y/o seccion_id.
-    Maneja unicidad de nombre y FK de sección.
+    Actualiza nombre, seccion_id, tipo y/o usuario_id.
+    Maneja unicidad de nombre, FK de sección y coherencia de ubicaciones de técnico.
     """
     obj = db.get(Ubicacion, ubicacion_id)
     if not obj:
@@ -204,6 +253,31 @@ def actualizar_ubicacion(
     if payload.seccion_id is not None and not db.get(Seccion, payload.seccion_id):
         errors.append({"loc": ["body", "seccion_id"], "msg": "Sección inexistente", "type": "value_error.foreign_key"})
 
+    # Validación usuario_id / tipo
+    new_tipo = payload.tipo or obj.tipo
+    if payload.usuario_id is not None:
+        user_obj = db.get(Usuario, payload.usuario_id)
+        if not user_obj:
+            errors.append(
+                {"loc": ["body", "usuario_id"], "msg": "Usuario inexistente", "type": "value_error.foreign_key"}
+            )
+        elif user_obj.role not in {"OPERARIO", "MANTENIMIENTO"}:
+            errors.append(
+                {
+                    "loc": ["body", "usuario_id"],
+                    "msg": "Sólo se pueden asociar usuarios técnicos (OPERARIO/MANTENIMIENTO)",
+                    "type": "value_error",
+                }
+            )
+        elif new_tipo != "TECNICO":
+            errors.append(
+                {
+                    "loc": ["body", "tipo"],
+                    "msg": "usuario_id sólo es válido cuando tipo='TECNICO'",
+                    "type": "value_error",
+                }
+            )
+
     if errors:
         _raise_422(errors)
 
@@ -214,6 +288,12 @@ def actualizar_ubicacion(
         changed = True
     if payload.seccion_id is not None:
         obj.seccion_id = payload.seccion_id
+        changed = True
+    if payload.tipo is not None:
+        obj.tipo = payload.tipo
+        changed = True
+    if payload.usuario_id is not None:
+        obj.usuario_id = payload.usuario_id
         changed = True
 
     if not changed:
@@ -226,7 +306,10 @@ def actualizar_ubicacion(
         return obj
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="Conflicto de integridad (nombre duplicado o FK inválida)")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Conflicto de integridad (nombre duplicado, tipo inválido o FK inválida)",
+        )
     except DBAPIError:
         db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error interno de base de datos")

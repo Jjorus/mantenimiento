@@ -49,7 +49,7 @@ class Seccion(SQLModel, table=True):
 
     # En Equipo definiste: seccion: Relationship(..., sin back_populates)
     # Para evitar desajustes, dejamos la relación de "equipos" sin back_populates.
-    equipos: list["Equipo"] = Relationship()
+    equipos: list["Equipo"] = Relationship(back_populates="seccion")
 
     def __repr__(self) -> str:
         return f"<Seccion id={self.id} nombre={self.nombre!r}>"

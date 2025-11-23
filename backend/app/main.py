@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Final, Dict, Any
 
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 
 from app.core.logging import setup_logging, get_logger
 from app.core.cors import add_cors
-from app.core.db import init_db, get_session
+from app.core.db import init_db, get_session, engine
 from app.core.config import settings
 from app.middleware.security_headers import SecurityHeadersMiddleware
 
@@ -118,21 +118,51 @@ def root():
     return "Mantenimiento API - OK"
 
 @app.get("/health", tags=["_meta"])
-def health(db: Session = Depends(get_session)):
+def health_check():
+    """
+    Health check completo.
+    Devuelve 200 OK si todo bien.
+    Devuelve 503 Service Unavailable si falla DB o Redis.
+    """
+    # 1. Chequeo DB
     try:
-        db.exec(select(1))
+        with Session(engine) as session:
+            session.exec(select(1))
         db_status = "healthy"
     except Exception as e:
-        db_status = f"unhealthy: {str(e)}"
-        logger.error(f"Health check falló: {e}")
+        logger.error(f"Health DB Error: {e}")
+        db_status = "unhealthy"
 
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "environment": settings.APP_ENV,
-        "database": db_status,
-        "version": settings.VERSION,
-    }
+    # 2. Chequeo Redis
+    try:
+        # Timeout corto (1s) para no bloquear la petición si Redis murió
+        r = redis.from_url(settings.REDIS_URL, socket_timeout=1)
+        if r.ping():
+            redis_status = "healthy"
+        else:
+            redis_status = "unhealthy"
+        r.close()
+    except Exception as e:
+        logger.error(f"Health Redis Error: {e}")
+        redis_status = "unhealthy"
+
+    # 3. Estado Global
+    is_healthy = (db_status == "healthy" and redis_status == "healthy")
+    http_status = status.HTTP_200_OK if is_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
+    
+    return JSONResponse(
+        status_code=http_status,
+        content={
+            "status": "ok" if is_healthy else "error",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "environment": settings.APP_ENV,
+            "version": settings.VERSION,
+            "components": {
+                "database": db_status,
+                "redis": redis_status
+            }
+        }
+    )
 
 @app.get("/version", include_in_schema=False)
 def version():

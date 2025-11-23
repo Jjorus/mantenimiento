@@ -1,5 +1,5 @@
 # backend/app/models/reparacion.py
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, List
 from datetime import datetime, timezone
 
 from sqlmodel import SQLModel, Field, Relationship
@@ -11,22 +11,28 @@ from sqlalchemy import (
     Text,
     CheckConstraint,
     Index,
+    UniqueConstraint,
+    Numeric,
     func,
     Column as SAColumn,
 )
-from pydantic import ConfigDict
+from pydantic import ConfigDict, computed_field
 
 if TYPE_CHECKING:
     from .equipo import Equipo
     from .usuario import Usuario
+    from .incidencia import Incidencia
+    from .reparacion_factura import ReparacionFactura
 
 
 class Reparacion(SQLModel, table=True):
     """
     Reparaciones realizadas a un equipo.
+    - Siempre vinculadas a una incidencia previa (incidencia_id).
     - Estado validado en BD (check constraint).
     - Timestamps en UTC con server_default / onupdate.
     - Auditoría: creador, último modificador y (si aplica) quién cierra.
+    - Costes y datos de factura básicos.
     - Índices para consultas habituales.
     """
     model_config = ConfigDict(from_attributes=True)
@@ -36,15 +42,17 @@ class Reparacion(SQLModel, table=True):
             "estado in ('ABIERTA','EN_PROGRESO','CERRADA')",
             name="ck_reparacion_estado",
         ),
+        # Solo una reparación por equipo+incidencia
+        UniqueConstraint("equipo_id", "incidencia_id", name="uq_reparacion_equipo_incidencia"),
         Index("ix_reparacion_equipo_fecha_inicio", "equipo_id", "fecha_inicio"),
         Index("ix_reparacion_estado_fecha_inicio", "estado", "fecha_inicio"),
+        Index("ix_reparacion_incidencia", "incidencia_id"),
     )
 
     # --- PK ---
     id: Optional[int] = Field(default=None, primary_key=True)
 
     # --- Relaciones obligatorias ---
-    # Nota: no usar index=True cuando se pasa sa_column
     equipo_id: int = Field(
         sa_column=SAColumn(
             Integer,
@@ -52,6 +60,15 @@ class Reparacion(SQLModel, table=True):
             nullable=False,
         ),
         description="Equipo reparado",
+    )
+
+    incidencia_id: int = Field(
+        sa_column=SAColumn(
+            Integer,
+            ForeignKey("incidencia.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        description="Incidencia de origen de la reparación",
     )
 
     # --- Fechas (UTC) ---
@@ -101,6 +118,62 @@ class Reparacion(SQLModel, table=True):
         description="Estado: ABIERTA | EN_PROGRESO | CERRADA",
     )
 
+    # --- Costes y facturación ---
+    coste_materiales: Optional[float] = Field(
+        default=None,
+        sa_column=SAColumn(Numeric(10, 2), nullable=True),
+        description="Coste de materiales en la moneda indicada",
+    )
+    coste_mano_obra: Optional[float] = Field(
+        default=None,
+        sa_column=SAColumn(Numeric(10, 2), nullable=True),
+        description="Coste de mano de obra en la moneda indicada",
+    )
+    coste_otros: Optional[float] = Field(
+        default=None,
+        sa_column=SAColumn(Numeric(10, 2), nullable=True),
+        description="Otros costes (transporte, tasas, etc.)",
+    )
+    moneda: Optional[str] = Field(
+        default="EUR",
+        sa_column=SAColumn(String(3), nullable=True, server_default="EUR"),
+        min_length=3,
+        max_length=3,
+        description="Código de moneda ISO (ej. EUR, USD)",
+    )
+    proveedor: Optional[str] = Field(
+        default=None,
+        sa_column=SAColumn(String(150), nullable=True),
+        description="Proveedor / taller que realizó el servicio",
+    )
+    numero_factura: Optional[str] = Field(
+        default=None,
+        sa_column=SAColumn(String(50), nullable=True),
+        description="Número de factura asociado (campo genérico)",
+    )
+
+    # Metadatos de archivo de factura PRINCIPAL (para compatibilidad)
+    factura_archivo_nombre: Optional[str] = Field(
+        default=None,
+        sa_column=SAColumn(String(255), nullable=True),
+        description="Nombre original del archivo de factura principal",
+    )
+    factura_archivo_path: Optional[str] = Field(
+        default=None,
+        sa_column=SAColumn(String(500), nullable=True),
+        description="Ruta relativa donde se guarda el archivo principal en el servidor",
+    )
+    factura_content_type: Optional[str] = Field(
+        default=None,
+        sa_column=SAColumn(String(100), nullable=True),
+        description="MIME type del archivo subido (application/pdf, image/jpeg, etc.)",
+    )
+    factura_tamano_bytes: Optional[int] = Field(
+        default=None,
+        sa_column=SAColumn(Integer, nullable=True),
+        description="Tamaño del archivo de factura principal en bytes",
+    )
+
     # --- Auditoría ---
     usuario_id: Optional[int] = Field(
         default=None,
@@ -126,6 +199,11 @@ class Reparacion(SQLModel, table=True):
         sa_relationship_kwargs={"passive_deletes": True},
     )
 
+    incidencia: "Incidencia" = Relationship(
+        back_populates="reparaciones",
+        sa_relationship_kwargs={"passive_deletes": True},
+    )
+
     usuario: Optional["Usuario"] = Relationship(
         sa_relationship_kwargs={"foreign_keys": "[Reparacion.usuario_id]"}
     )
@@ -134,6 +212,12 @@ class Reparacion(SQLModel, table=True):
     )
     cerrada_por: Optional["Usuario"] = Relationship(
         sa_relationship_kwargs={"foreign_keys": "[Reparacion.cerrada_por_id]"}
+    )
+
+    # N facturas asociadas
+    facturas: List["ReparacionFactura"] = Relationship(
+        back_populates="reparacion",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
 
     # --- Métodos de dominio ---
@@ -145,6 +229,7 @@ class Reparacion(SQLModel, table=True):
         """Determina si la reparación puede cerrarse."""
         return self.estado in {"ABIERTA", "EN_PROGRESO"}
 
+    @computed_field  # type: ignore[misc]
     @property
     def duracion_dias(self) -> Optional[int]:
         """
@@ -154,6 +239,22 @@ class Reparacion(SQLModel, table=True):
         if not self.fecha_fin or not self.fecha_inicio:
             return None
         return (self.fecha_fin - self.fecha_inicio).days
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def coste_total(self) -> Optional[float]:
+        """
+        Coste total aproximado (materiales + mano de obra + otros).
+        Si todo es None, devuelve None.
+        """
+        partes = [
+            self.coste_materiales or 0,
+            self.coste_mano_obra or 0,
+            self.coste_otros or 0,
+        ]
+        if all(v == 0 for v in partes):
+            return None
+        return float(sum(partes))
 
     def cerrar(self, usuario_id: int) -> None:
         """Cierra la reparación aplicando reglas de dominio y auditoría."""

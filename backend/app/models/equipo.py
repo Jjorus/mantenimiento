@@ -108,7 +108,7 @@ class Equipo(SQLModel, table=True):
     )
 
     # --- Relaciones ORM ---
-    seccion: Optional["Seccion"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[Equipo.seccion_id]"})
+    seccion: Optional["Seccion"] = Relationship(back_populates="equipos", sa_relationship_kwargs={"foreign_keys": "[Equipo.seccion_id]"})
     ubicacion: Optional["Ubicacion"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[Equipo.ubicacion_id]"})
 
     movimientos: list["Movimiento"] = Relationship(

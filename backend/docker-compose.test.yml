@@ -1,0 +1,43 @@
+# docker-compose.test.yml
+services:
+  # Base de datos PostgreSQL 16 OPTIMIZADA para tests
+  db_test:
+    image: postgres:16-alpine
+    container_name: mant_db_test
+    restart: no
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: mant_test
+    ports:
+      - "5433:5432" # Puerto 5433 host -> 5432 contenedor
+    volumes:
+      - type: tmpfs # Disco en RAM (velocidad extrema)
+        target: /var/lib/postgresql/data
+    # Desactiva seguridad de escritura para ganar un 300% de velocidad en tests
+    command: >
+      postgres 
+      -c fsync=off 
+      -c full_page_writes=off 
+      -c synchronous_commit=off
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mant_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
+
+  # Redis real para tests (sin persistencia)
+  redis_test:
+    image: redis:7-alpine
+    container_name: mant_redis_test
+    restart: no
+    ports:
+      - "6380:6379" # Puerto 6380 host -> 6379 contenedor
+    # --save "" desactiva guardado en disco
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 5

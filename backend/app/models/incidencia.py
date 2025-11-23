@@ -1,3 +1,4 @@
+# backend/app/models/incidencia.py
 from typing import Optional, TYPE_CHECKING
 from datetime import datetime, timezone
 from sqlmodel import SQLModel, Field, Relationship
@@ -17,6 +18,7 @@ from pydantic import ConfigDict
 if TYPE_CHECKING:
     from .equipo import Equipo
     from .usuario import Usuario
+    from .reparacion import Reparacion
 
 
 class Incidencia(SQLModel, table=True):
@@ -126,15 +128,21 @@ class Incidencia(SQLModel, table=True):
         sa_relationship_kwargs={"passive_deletes": True},
     )
 
+    # 🔹 NUEVA RELACIÓN CON REPARACIONES (lo que faltaba)
+    reparaciones: list["Reparacion"] = Relationship(
+        back_populates="incidencia",
+        sa_relationship_kwargs={"passive_deletes": True},
+    )
+
     # Relaciones con usuarios
     usuario: Optional["Usuario"] = Relationship(
         sa_relationship_kwargs={"foreign_keys": "[Incidencia.usuario_id]"}
     )
-    
+
     usuario_modificador: Optional["Usuario"] = Relationship(
         sa_relationship_kwargs={"foreign_keys": "[Incidencia.usuario_modificador_id]"}
     )
-    
+
     cerrada_por: Optional["Usuario"] = Relationship(
         sa_relationship_kwargs={"foreign_keys": "[Incidencia.cerrada_por_id]"}
     )
