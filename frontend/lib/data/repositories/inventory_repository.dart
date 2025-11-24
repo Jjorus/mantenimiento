@@ -8,7 +8,7 @@ class InventoryRepository {
 
   Future<EquipoModel> buscarPorNfc(String tag) => _remoteDs.getEquipoByNfc(tag);
   
-  // query es opcional para poder traer "todos" si se deja vacío
+  // FIX: Parámetro con nombre opcional para que coincida con la llamada del Cubit
   Future<List<EquipoModel>> buscarEquipos({String? query}) => 
       _remoteDs.getEquipos(query: query);
 }

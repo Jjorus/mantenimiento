@@ -12,7 +12,7 @@ class InventoryRemoteDataSource {
     return EquipoModel.fromJson(response.data);
   }
 
-  // Listado general (acepta filtros opcionales)
+  // Listado general (Parámetros opcionales con nombre)
   Future<List<EquipoModel>> getEquipos({String? query, int? ubicacionId}) async {
     final response = await _client.dio.get(
       '/v1/equipos',
@@ -22,7 +22,7 @@ class InventoryRemoteDataSource {
       },
     );
     
-    // Backend devuelve una lista plana [{}, {}]
+    // Backend devuelve lista plana: [ {}, {} ]
     return (response.data as List)
         .map((e) => EquipoModel.fromJson(e))
         .toList();

@@ -9,6 +9,10 @@ import '../../presentation/shared/layouts/responsive_layout.dart';
 import '../../presentation/shared/layouts/mobile_layout.dart';
 import '../../presentation/shared/layouts/desktop_layout.dart';
 import '../../presentation/features/movement/screens/scanner_screen.dart'; 
+import '../../presentation/features/inventory/screens/inventory_grid_screen.dart';
+import '../../presentation/features/maintenance/screens/maintenance_screen.dart'; 
+import '../../presentation/features/maintenance/screens/incident_form_screen.dart'; 
+
 
 class AppRouter {
   static GoRouter router(AuthCubit authCubit) {
@@ -50,22 +54,17 @@ class AppRouter {
               builder: (context, state) => const HomeScreen(),
             ),
             
-            // 2. MODIFICAR ESTA RUTA
+            // 2. 
             GoRoute(
               path: '/movement',
-              // Antes tenías esto (el texto que ves):
-              // builder: (context, state) => const Scaffold(body: Center(child: Text("Pantalla Movimientos (Scanner)"))),
-              
-              // AHORA PON ESTO:
               builder: (context, state) => const ScannerScreen(),
             ),
             
             GoRoute(
               path: '/inventory',
-              builder: (context, state) => const Scaffold(
-                body: Center(child: Text("Pantalla Inventario")),
-              ),
+              builder: (context, state) => const InventoryGridScreen(),  
             ),
+            
             GoRoute(
               path: '/maintenance',
               builder: (context, state) => const Scaffold(
@@ -77,6 +76,20 @@ class AppRouter {
               builder: (context, state) => const Scaffold(
                 body: Center(child: Text("Pantalla Usuarios")),
               ),
+            ),
+            GoRoute(
+              path: '/maintenance',
+              builder: (context, state) => const MaintenanceScreen(),
+            ),
+            // Nueva ruta fuera del menú principal (pantalla completa)
+            GoRoute(
+              path: '/incidencia/new',
+              builder: (context, state) {
+                // Extraemos el parámetro opcional ?equipoId=123
+                final eqParam = state.uri.queryParameters['equipoId'];
+                final eqId = eqParam != null ? int.tryParse(eqParam) : null;
+                return IncidentFormScreen(equipoId: eqId);
+              },
             ),
           ],
         ),

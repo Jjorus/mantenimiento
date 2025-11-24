@@ -1,5 +1,8 @@
+//lib/presentation/features/movement/screens/scanner_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import '../../../../logic/movement_cubit/movement_cubit.dart';
 import '../../../../logic/movement_cubit/movement_state.dart';
 
@@ -152,6 +155,22 @@ class _ScannerScreenState extends State<ScannerScreen> {
                                       child: CircularProgressIndicator(strokeWidth: 2),
                                     )
                                   : const Icon(Icons.arrow_forward),
+                            ),
+                            const SizedBox(height: 24),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton.icon(
+                                icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                                label: const Text("Reportar Avería"),
+                                onPressed: () {
+                              // Si el usuario escribió un ID, lo pasamos
+                                  String? query = "";
+                                  if (_manualController.text.isNotEmpty) {
+                                    query = "?equipoId=${_manualController.text}";
+                                  }
+                                  context.push('/incidencia/new$query');
+                                },
+                              ),
                             ),
                           ],
                         ),
