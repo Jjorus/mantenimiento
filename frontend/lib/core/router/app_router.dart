@@ -1,18 +1,23 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../logic/auth_cubit/auth_cubit.dart';
 import '../../logic/auth_cubit/auth_state.dart';
+
+// PANTALLAS
 import '../../presentation/features/login/screens/login_screen.dart';
 import '../../presentation/features/home/screens/home_screen.dart';
+import '../../presentation/features/movement/screens/scanner_screen.dart';
+// IMPORTANTE: Añadir estos imports
+import '../../presentation/features/inventory/screens/inventory_grid_screen.dart';
+import '../../presentation/features/maintenance/screens/maintenance_screen.dart';
+import '../../presentation/features/maintenance/screens/incident_form_screen.dart';
+
+// LAYOUTS
 import '../../presentation/shared/layouts/responsive_layout.dart';
 import '../../presentation/shared/layouts/mobile_layout.dart';
 import '../../presentation/shared/layouts/desktop_layout.dart';
-import '../../presentation/features/movement/screens/scanner_screen.dart'; 
-import '../../presentation/features/inventory/screens/inventory_grid_screen.dart';
-import '../../presentation/features/maintenance/screens/maintenance_screen.dart'; 
-import '../../presentation/features/maintenance/screens/incident_form_screen.dart'; 
-
 
 class AppRouter {
   static GoRouter router(AuthCubit authCubit) {
@@ -36,10 +41,13 @@ class AppRouter {
         return null;
       },
       routes: [
+        // LOGIN
         GoRoute(
           path: '/login',
           builder: (context, state) => const LoginScreen(),
         ),
+
+        // SHELL (Barra lateral / inferior)
         ShellRoute(
           builder: (context, state, child) {
             final String currentLocation = state.uri.toString();
@@ -53,45 +61,41 @@ class AppRouter {
               path: '/home',
               builder: (context, state) => const HomeScreen(),
             ),
-            
-            // 2. 
             GoRoute(
               path: '/movement',
               builder: (context, state) => const ScannerScreen(),
             ),
             
+            // --- CORRECCIÓN AQUÍ ---
             GoRoute(
               path: '/inventory',
-              builder: (context, state) => const InventoryGridScreen(),  
+              // Antes: Scaffold(body: Text("Inventario"))
+              builder: (context, state) => const InventoryGridScreen(),
             ),
-            
             GoRoute(
               path: '/maintenance',
-              builder: (context, state) => const Scaffold(
-                body: Center(child: Text("Pantalla Mantenimiento")),
-              ),
+              // Antes: Scaffold(body: Text("Mantenimiento"))
+              builder: (context, state) => const MaintenanceScreen(),
             ),
+            // -----------------------
+
             GoRoute(
               path: '/users',
               builder: (context, state) => const Scaffold(
-                body: Center(child: Text("Pantalla Usuarios")),
+                body: Center(child: Text("Pantalla Usuarios (Próximamente)")),
               ),
             ),
-            GoRoute(
-              path: '/maintenance',
-              builder: (context, state) => const MaintenanceScreen(),
-            ),
-            // Nueva ruta fuera del menú principal (pantalla completa)
-            GoRoute(
-              path: '/incidencia/new',
-              builder: (context, state) {
-                // Extraemos el parámetro opcional ?equipoId=123
-                final eqParam = state.uri.queryParameters['equipoId'];
-                final eqId = eqParam != null ? int.tryParse(eqParam) : null;
-                return IncidentFormScreen(equipoId: eqId);
-              },
-            ),
           ],
+        ),
+
+        // RUTAS FUERA DEL MENU (Pantalla completa)
+        GoRoute(
+          path: '/incidencia/new',
+          builder: (context, state) {
+            final eqParam = state.uri.queryParameters['equipoId'];
+            final eqId = eqParam != null ? int.tryParse(eqParam) : null;
+            return IncidentFormScreen(equipoId: eqId);
+          },
         ),
       ],
     );

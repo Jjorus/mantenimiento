@@ -19,7 +19,6 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
   @override
   void initState() {
     super.initState();
-    // Cargar datos frescos al entrar
     context.read<MaintenanceCubit>().loadDashboardData();
   }
 
@@ -45,7 +44,6 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
           actions: [
             IconButton(
               icon: const Icon(Icons.refresh),
-              tooltip: "Recargar datos",
               onPressed: () =>
                   context.read<MaintenanceCubit>().loadDashboardData(),
             )
@@ -72,7 +70,6 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
             }
           },
           builder: (context, state) {
-            // Loading inicial
             if (state.status == MaintenanceStatus.loading &&
                 state.incidencias.isEmpty &&
                 state.reparaciones.isEmpty) {
@@ -137,9 +134,8 @@ class _IncidenciasGrid extends StatelessWidget {
             if (val == 'EN_PROGRESO') color = Colors.orange;
             if (val == 'CERRADA') color = Colors.green;
             return Text(val, style: TextStyle(color: color, fontWeight: FontWeight.bold));
-          }
+          },
         ),
-        // CORRECCIÓN: Usamos texto para la fecha (evita error de parsing)
         PlutoColumn(
           title: 'Fecha',
           field: 'fecha',
@@ -163,7 +159,6 @@ class _IncidenciasGrid extends StatelessWidget {
       configuration: const PlutoGridConfiguration(
         style: PlutoGridStyleConfig(
           gridBorderColor: Colors.transparent,
-          gridBorderRadius: BorderRadius.zero,
         ),
         columnSize: PlutoGridColumnSizeConfig(
           autoSizeMode: PlutoAutoSizeMode.scale,
@@ -217,7 +212,7 @@ class _ReparacionesGrid extends StatelessWidget {
             if (val == 'EN_PROCESO') color = Colors.orange;
             if (val == 'CERRADA') color = Colors.green;
             return Text(val, style: TextStyle(color: color, fontWeight: FontWeight.bold));
-          }
+          },
         ),
         PlutoColumn(
           title: 'Coste',
@@ -254,18 +249,24 @@ class _ReparacionesGrid extends StatelessWidget {
           )
           .toList(),
       
-      // CORRECCIÓN: Protección contra fila nula
+      // --- FIX DE NULABILIDAD ---
+      // Usamos una variable intermedia explícitamente nullable (PlutoRow?)
+      // para que Dart permita la comprobación '!= null' sin quejas.
+      
       onRowDoubleTap: (event) {
-        if (event.row != null) {
-          _abrirDetalle(context, event.row!);
+        final PlutoRow? row = event.row; 
+        if (row != null) {
+          _abrirDetalle(context, row);
         }
       },
-      // CORRECCIÓN: Protección contra celda/fila nula en selección
       onSelected: (event) {
-        if (event.row != null && event.cell?.column.field == 'actions') {
-          _abrirDetalle(context, event.row!);
+        final PlutoRow? row = event.row;
+        if (row != null && event.cell?.column.field == 'actions') {
+          _abrirDetalle(context, row);
         }
       },
+      // ---------------------------
+
       configuration: const PlutoGridConfiguration(
         style: PlutoGridStyleConfig(
           gridBorderColor: Colors.transparent,
@@ -280,7 +281,6 @@ class _ReparacionesGrid extends StatelessWidget {
 
   void _abrirDetalle(BuildContext context, PlutoRow row) {
     final id = row.cells['id']!.value as int;
-    // Buscamos el objeto original en la lista
     final reparacion = reparaciones.firstWhere((r) => r.id == id);
 
     showDialog(
