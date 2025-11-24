@@ -313,7 +313,7 @@ def listar_movimientos(
     else:  # fecha_desc
         data_stmt = data_stmt.order_by(Movimiento.fecha.desc(), Movimiento.id.desc())
 
-    total = db.exec(total_stmt).scalar_one()
+    total = db.exec(total_stmt).one()
     response.headers["X-Total-Count"] = str(total)
 
     data_stmt = data_stmt.limit(limit).offset(offset)

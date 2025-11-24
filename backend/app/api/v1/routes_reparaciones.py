@@ -329,7 +329,7 @@ def listar_reparaciones(
     else:  # inicio_desc
         stmt = stmt.order_by(Reparacion.fecha_inicio.desc())
 
-    total = db.exec(count_stmt).scalar_one()
+    total = db.exec(count_stmt).one()
     response.headers["X-Total-Count"] = str(total)
 
     stmt = stmt.limit(limit).offset(offset)

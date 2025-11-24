@@ -59,9 +59,9 @@ class Usuario(SQLModel, table=True):
     )
 
     # email opcional pero único si se informa (case-insensitive)
-    email: Optional[str] = Field(
+    email: str = Field(
         default=None,
-        sa_column=Column(CITEXT(), unique=True, nullable=True),
+        sa_column=Column(CITEXT(), unique=True, nullable=False),
         description="Email del usuario (opcional, único si existe)",
     )
 
