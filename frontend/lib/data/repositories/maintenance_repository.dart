@@ -1,3 +1,4 @@
+// Ruta: frontend/lib/data/repositories/maintenance_repository.dart
 import 'dart:io';
 import '../datasources/maintenance_remote_ds.dart';
 import '../models/incidencia_model.dart';
@@ -10,13 +11,35 @@ class MaintenanceRepository {
       : _remoteDs = remoteDs;
 
   // Incidencias
-  Future<List<IncidenciaModel>> getIncidencias() => _remoteDs.getIncidencias();
+  Future<List<IncidenciaModel>> getIncidencias({int? equipoId, String? estado}) => 
+      _remoteDs.getIncidencias(equipoId: equipoId, estado: estado);
 
   Future<void> reportarIncidencia(int equipoId, String titulo, String? descripcion) =>
       _remoteDs.createIncidencia(equipoId, titulo, descripcion);
 
+  Future<void> cambiarEstadoIncidencia(int id, String nuevoEstado) =>
+      _remoteDs.updateIncidenciaEstado(id, nuevoEstado);
+
   // Reparaciones
-  Future<List<ReparacionModel>> getReparaciones() => _remoteDs.getReparaciones();
+  Future<void> crearReparacion({
+    required int equipoId,
+    required int incidenciaId,
+    required String titulo,
+    String? descripcion,
+    double? costeMateriales,
+    double? costeManoObra,
+  }) =>
+      _remoteDs.createReparacion(
+        equipoId: equipoId,
+        incidenciaId: incidenciaId,
+        titulo: titulo,
+        descripcion: descripcion,
+        costeMateriales: costeMateriales,
+        costeManoObra: costeManoObra,
+      );
+  
+  Future<List<ReparacionModel>> getReparaciones({int? equipoId}) => 
+      _remoteDs.getReparaciones(equipoId: equipoId);
 
   // Archivos
   Future<void> subirFactura(int reparacionId, File file) => 

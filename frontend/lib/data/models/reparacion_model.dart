@@ -7,9 +7,13 @@ class ReparacionModel {
   final int id;
   @JsonKey(name: 'equipo_id')
   final int equipoId;
+  
+  @JsonKey(name: 'incidencia_id') // <--- NUEVO CAMPO
+  final int? incidenciaId;
+
   final String titulo;
   final String? descripcion;
-  final String estado; // ABIERTA, EN_PROCESO, CERRADA
+  final String estado; 
   
   @JsonKey(name: 'fecha_inicio')
   final String? fechaInicio;
@@ -21,6 +25,7 @@ class ReparacionModel {
   const ReparacionModel({
     required this.id,
     required this.equipoId,
+    this.incidenciaId, // <--- AÑADIR AL CONSTRUCTOR
     required this.titulo,
     this.descripcion,
     required this.estado,

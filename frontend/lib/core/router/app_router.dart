@@ -9,10 +9,11 @@ import '../../logic/auth_cubit/auth_state.dart';
 import '../../presentation/features/login/screens/login_screen.dart';
 import '../../presentation/features/home/screens/home_screen.dart';
 import '../../presentation/features/movement/screens/scanner_screen.dart';
-// IMPORTANTE: Añadir estos imports
 import '../../presentation/features/inventory/screens/inventory_grid_screen.dart';
+import '../../presentation/features/inventory/screens/equipo_detail_screen.dart'; // Importar detalle
 import '../../presentation/features/maintenance/screens/maintenance_screen.dart';
 import '../../presentation/features/maintenance/screens/incident_form_screen.dart';
+import '../../presentation/features/maintenance/screens/repair_form_screen.dart'; // Importar formulario reparación
 
 // LAYOUTS
 import '../../presentation/shared/layouts/responsive_layout.dart';
@@ -65,20 +66,14 @@ class AppRouter {
               path: '/movement',
               builder: (context, state) => const ScannerScreen(),
             ),
-            
-            // --- CORRECCIÓN AQUÍ ---
             GoRoute(
               path: '/inventory',
-              // Antes: Scaffold(body: Text("Inventario"))
               builder: (context, state) => const InventoryGridScreen(),
             ),
             GoRoute(
               path: '/maintenance',
-              // Antes: Scaffold(body: Text("Mantenimiento"))
               builder: (context, state) => const MaintenanceScreen(),
             ),
-            // -----------------------
-
             GoRoute(
               path: '/users',
               builder: (context, state) => const Scaffold(
@@ -88,13 +83,31 @@ class AppRouter {
           ],
         ),
 
-        // RUTAS FUERA DEL MENU (Pantalla completa)
+        // --- RUTAS FUERA DEL MENÚ (Pantallas completas) ---
+
+        // 1. Nueva Incidencia
         GoRoute(
           path: '/incidencia/new',
           builder: (context, state) {
             final eqParam = state.uri.queryParameters['equipoId'];
             final eqId = eqParam != null ? int.tryParse(eqParam) : null;
             return IncidentFormScreen(equipoId: eqId);
+          },
+        ),
+
+        // 2. Nueva Reparación (¡Esta faltaba o estaba mal copiada!)
+        GoRoute(
+          path: '/reparacion/new',
+          builder: (context, state) => const RepairFormScreen(),
+        ),
+
+        // 3. Detalle / Historial de Equipo
+        GoRoute(
+          path: '/equipment/:id',
+          builder: (context, state) {
+            final idStr = state.pathParameters['id'];
+            final id = int.tryParse(idStr ?? '0') ?? 0;
+            return EquipoDetailScreen(equipoId: id);
           },
         ),
       ],

@@ -4,11 +4,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../../data/models/reparacion_model.dart';
-import '../../../../../data/repositories/maintenance_repository.dart';
-import '../../../../../logic/maintenance_cubit/maintenance_cubit.dart';
-// CORRECCIÓN: Import relativo correcto a shared
+import '../../../../data/models/reparacion_model.dart';
+import '../../../../data/repositories/maintenance_repository.dart';
+import '../../../../logic/maintenance_cubit/maintenance_cubit.dart';
 import '../../../shared/widgets/files/universal_file_viewer.dart';
+
 
 class RepairDetailDialog extends StatefulWidget {
   final ReparacionModel reparacion;

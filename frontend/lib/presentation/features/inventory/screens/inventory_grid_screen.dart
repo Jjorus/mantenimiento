@@ -1,6 +1,8 @@
+// Ruta: frontend/lib/presentation/features/inventory/screens/inventory_grid_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:pluto_grid/pluto_grid.dart'; 
+import 'package:pluto_grid/pluto_grid.dart';
+import 'package:go_router/go_router.dart'; 
 
 import '../../../../logic/inventory_cubit/inventory_cubit.dart';
 import '../../../../logic/inventory_cubit/inventory_state.dart';
@@ -26,34 +28,11 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
 
   void _setupColumns() {
     columns = [
-      PlutoColumn(
-        title: 'ID',
-        field: 'id',
-        type: PlutoColumnType.number(),
-        width: 80,
-        readOnly: true,
-      ),
-      PlutoColumn(
-        title: 'Identidad',
-        field: 'identidad',
-        type: PlutoColumnType.text(),
-      ),
-      PlutoColumn(
-        title: 'N. Serie',
-        field: 'serial',
-        type: PlutoColumnType.text(),
-      ),
-      PlutoColumn(
-        title: 'Tipo',
-        field: 'tipo',
-        type: PlutoColumnType.text(),
-        width: 120,
-      ),
-      PlutoColumn(
-        title: 'Estado',
-        field: 'estado',
-        type: PlutoColumnType.text(),
-        width: 150,
+      PlutoColumn(title: 'ID', field: 'id', type: PlutoColumnType.number(), width: 80, readOnly: true),
+      PlutoColumn(title: 'Identidad', field: 'identidad', type: PlutoColumnType.text()),
+      PlutoColumn(title: 'N. Serie', field: 'serial', type: PlutoColumnType.text()),
+      PlutoColumn(title: 'Tipo', field: 'tipo', type: PlutoColumnType.text(), width: 120),
+      PlutoColumn(title: 'Estado', field: 'estado', type: PlutoColumnType.text(), width: 150,
         renderer: (rendererContext) {
           final val = rendererContext.cell.value.toString();
           Color color = Colors.grey;
@@ -68,18 +47,19 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
               borderRadius: BorderRadius.circular(4),
               border: Border.all(color: color.withOpacity(0.5)),
             ),
-            child: Text(
-              val, 
-              style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12),
-            ),
+            child: Text(val, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
           );
         },
       ),
+      PlutoColumn(title: 'Ubicación ID', field: 'ubicacion', type: PlutoColumnType.number(), width: 100),
       PlutoColumn(
-        title: 'Ubicación ID',
-        field: 'ubicacion',
-        type: PlutoColumnType.number(),
-        width: 100,
+        title: 'Historial',
+        field: 'history',
+        type: PlutoColumnType.text(),
+        width: 80,
+        enableSorting: false,
+        enableFilterMenuItem: false,
+        renderer: (_) => const Icon(Icons.history, color: Colors.blue),
       ),
     ];
   }
@@ -100,36 +80,20 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
       body: BlocConsumer<InventoryCubit, InventoryState>(
         listener: (context, state) {
           if (state.status == InventoryStatus.failure) {
-            // FIX: Si falla, también quitamos el spinner inicial para mostrar mensaje
             if (_isFirstLoad) setState(() => _isFirstLoad = false);
-            
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(state.errorMessage ?? "Error desconocido"), 
-                backgroundColor: Colors.red
-              ),
+              SnackBar(content: Text(state.errorMessage ?? "Error desconocido"), backgroundColor: Colors.red),
             );
           }
         },
         builder: (context, state) {
-          // Loading inicial
           if (state.status == InventoryStatus.loading && _isFirstLoad) {
             return const Center(child: CircularProgressIndicator());
           }
-
           if (state.status == InventoryStatus.success) _isFirstLoad = false;
 
           if (state.equipos.isEmpty && !_isFirstLoad) {
-             return Center(
-               child: Column(
-                 mainAxisAlignment: MainAxisAlignment.center,
-                 children: [
-                   const Icon(Icons.inbox, size: 64, color: Colors.grey),
-                   const SizedBox(height: 16),
-                   Text("No hay equipos registrados", style: Theme.of(context).textTheme.titleMedium),
-                 ],
-               ),
-             );
+             return const Center(child: Text("No hay equipos registrados"));
           }
 
           return PlutoGrid(
@@ -138,14 +102,19 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
             onLoaded: (PlutoGridOnLoadedEvent event) {
               event.stateManager.setShowColumnFilter(true);
             },
+            onSelected: (event) {
+              final row = event.row;
+              if (row != null && event.cell?.column.field == 'history') {
+                final id = row.cells['id']!.value;
+                context.push('/equipment/$id'); 
+              }
+            },
             configuration: const PlutoGridConfiguration(
               style: PlutoGridStyleConfig(
                 gridBorderColor: Colors.transparent,
                 gridBorderRadius: BorderRadius.zero,
               ),
-              columnSize: PlutoGridColumnSizeConfig(
-                autoSizeMode: PlutoAutoSizeMode.scale,
-              ),
+              columnSize: PlutoGridColumnSizeConfig(autoSizeMode: PlutoAutoSizeMode.scale),
             ),
           );
         },
@@ -162,6 +131,7 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
         'tipo': PlutoCell(value: e.tipo),
         'estado': PlutoCell(value: e.estado),
         'ubicacion': PlutoCell(value: e.ubicacionId ?? 0),
+        'history': PlutoCell(value: 'ver'),
       },
     );
   }
