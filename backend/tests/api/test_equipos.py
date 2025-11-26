@@ -7,29 +7,47 @@ from tests.utils import create_user, get_auth_headers, create_random_equipo
 
 def test_crud_equipo_admin(client, session):
     """
-    ADMIN puede crear, leer y listar equipos.
+    ADMIN puede crear, leer, actualizar y listar equipos.
+    *Actualizado para verificar el campo 'notas'*
     """
     admin = create_user(session, role="ADMIN")
     headers = get_auth_headers(client, admin.username)
 
-    # 1. Crear
+    # 1. Crear (incluyendo notas)
     payload = {
         "identidad": "EQ-ADMIN-01",
         "numero_serie": "SN-ADMIN-01",
         "tipo": "Analizador",
         "estado": "OPERATIVO",
+        "notas": "Nota inicial de prueba para inventario"  # <--- NUEVO
     }
     resp = client.post("/api/v1/equipos", json=payload, headers=headers)
     assert resp.status_code == 201
     data = resp.json()
     eq_id = data["id"]
+    
+    # Verificaciones
     assert data["identidad"] == "eq-admin-01"  # Se normaliza a minúsculas
+    assert data["notas"] == "Nota inicial de prueba para inventario" # <--- Verificamos persistencia
 
     # 2. Leer individual
     resp = client.get(f"/api/v1/equipos/{eq_id}", headers=headers)
     assert resp.status_code == 200
+    assert resp.json()["notas"] == "Nota inicial de prueba para inventario"
 
-    # 3. Listar (búsqueda)
+    # 3. Actualizar (PATCH) notas
+    patch_payload = {
+        "notas": "Nota editada y actualizada" # <--- Probamos la edición
+    }
+    resp = client.patch(f"/api/v1/equipos/{eq_id}", json=patch_payload, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["notas"] == "Nota editada y actualizada"
+
+    # 4. Verificar persistencia tras actualización
+    resp = client.get(f"/api/v1/equipos/{eq_id}", headers=headers)
+    assert resp.json()["notas"] == "Nota editada y actualizada"
+
+    # 5. Listar (búsqueda)
     resp = client.get("/api/v1/equipos?q=admin", headers=headers)
     assert resp.status_code == 200
     assert len(resp.json()) >= 1
@@ -50,6 +68,7 @@ def test_unicidad_identidad_y_nfc(client, session):
             "identidad": "EQ-UNIQUE",
             "tipo": "Otro",        # tipo válido según TIPOS_VALIDOS
             "nfc_tag": "tag_unico",
+            "notas": "Nota equipo A"
         },
         headers=headers,
     )

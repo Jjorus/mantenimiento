@@ -1,4 +1,3 @@
-// Ruta: frontend/lib/presentation/features/maintenance/screens/repair_detail_dialog.dart
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../data/models/reparacion_model.dart';
 import '../../../../data/repositories/maintenance_repository.dart';
 import '../../../../logic/maintenance_cubit/maintenance_cubit.dart';
+import '../../../../core/utils/file_downloader.dart';
 import '../../../shared/widgets/files/universal_file_viewer.dart';
 
 class RepairDetailDialog extends StatefulWidget {
@@ -20,8 +20,6 @@ class RepairDetailDialog extends StatefulWidget {
 class _RepairDetailDialogState extends State<RepairDetailDialog> {
   late Future<List<Map<String, String>>> _filesFuture;
   late TextEditingController _descController;
-  
-  // CORRECCIÓN: FocusNode explícito para controlar el cierre
   final FocusNode _textFocusNode = FocusNode();
   
   bool _isEditing = false;
@@ -36,7 +34,6 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
 
   @override
   void dispose() {
-    // Liberamos recursos en orden
     _descController.dispose();
     _textFocusNode.dispose();
     super.dispose();
@@ -55,22 +52,17 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
         widget.reparacion.id, 
         descripcion: _descController.text
       );
-      
       if(mounted) {
         setState(() {
           _isEditing = false;
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Cambios guardados"), backgroundColor: Colors.green)
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cambios guardados"), backgroundColor: Colors.green));
       }
     } catch (e) {
       if(mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Error al guardar"), backgroundColor: Colors.red)
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error al guardar"), backgroundColor: Colors.red));
       }
     }
   }
@@ -93,6 +85,40 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
     }
   }
 
+  Future<void> _deleteFile(int idAdjunto) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Confirmar"),
+        content: const Text("¿Eliminar factura?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancelar")),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Eliminar", style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if(confirm != true) return;
+
+    if(!mounted) return;
+    try {
+      await context.read<MaintenanceCubit>().eliminarFactura(widget.reparacion.id, idAdjunto);
+      _refreshFiles();
+    } catch (e) {
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error eliminando"), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<void> _downloadFile(String url, String fileName) async {
+     try {
+        final repo = context.read<MaintenanceRepository>();
+        final tempFile = await repo.descargarArchivo(url, fileName);
+        if(!mounted) return;
+        await FileDownloader.saveFile(context, tempFile, fileName);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error al descargar"), backgroundColor: Colors.red));
+    }
+  }
+
   Future<void> _viewFile(String url, String fileName) async {
     try {
       final file = await context.read<MaintenanceRepository>().descargarArchivo(url, fileName);
@@ -106,18 +132,10 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
     }
   }
 
-  // --- MÉTODO DE CIERRE SEGURO V3 (DEFINITIVO) ---
   void _cerrarDialogo() async {
-    // 1. Quitamos el foco explícitamente de nuestro nodo
     _textFocusNode.unfocus();
-    
-    // 2. Esperamos un instante para que el sistema procese la pérdida de foco
     await Future.delayed(const Duration(milliseconds: 200));
-    
-    // 3. Cerramos la ventana
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
+    if (mounted) Navigator.of(context).pop();
   }
 
   @override
@@ -136,7 +154,6 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
           padding: const EdgeInsets.all(24),
           child: Column(
             children: [
-              // HEADER
               Row(
                 children: [
                   const Icon(Icons.build_circle, size: 32, color: Colors.blue),
@@ -157,7 +174,6 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // COLUMNA IZQUIERDA
                     Expanded(
                       flex: 5,
                       child: Column(
@@ -187,7 +203,7 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
                               ),
                               child: TextField(
                                 controller: _descController,
-                                focusNode: _textFocusNode, // ASIGNACIÓN DEL FOCO CONTROLADO
+                                focusNode: _textFocusNode,
                                 readOnly: !_isEditing || _isLoading,
                                 maxLines: null,
                                 expands: true,
@@ -203,7 +219,6 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
                         ],
                       ),
                     ),
-                    // ... Resto de columnas (Derecha) igual que antes ...
                     const SizedBox(width: 24),
                     const VerticalDivider(width: 1),
                     const SizedBox(width: 24),
@@ -240,13 +255,27 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
                                     separatorBuilder: (_,__) => const Divider(height: 1),
                                     itemBuilder: (ctx, i) {
                                       final f = files[i];
+                                      final idAdjunto = int.tryParse(f['url']!.split('/').last) ?? 0;
                                       return ListTile(
                                         dense: true,
                                         leading: const Icon(Icons.attach_file, size: 20),
                                         title: Text(f['fileName'] ?? '?', overflow: TextOverflow.ellipsis),
-                                        trailing: IconButton(
-                                          icon: const Icon(Icons.visibility, color: Colors.blue),
-                                          onPressed: () => _viewFile(f['url']!, f['fileName']!),
+                                        trailing: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              icon: const Icon(Icons.visibility, color: Colors.blue),
+                                              onPressed: () => _viewFile(f['url']!, f['fileName']!),
+                                            ),
+                                            IconButton(
+                                              icon: const Icon(Icons.download, color: Colors.green),
+                                              onPressed: () => _downloadFile(f['url']!, f['fileName']!),
+                                            ),
+                                            IconButton(
+                                              icon: const Icon(Icons.delete, color: Colors.red),
+                                              onPressed: () => _deleteFile(idAdjunto),
+                                            ),
+                                          ],
                                         ),
                                       );
                                     },

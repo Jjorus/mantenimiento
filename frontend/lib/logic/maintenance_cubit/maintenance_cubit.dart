@@ -1,4 +1,3 @@
-// Ruta: frontend/lib/logic/maintenance_cubit/maintenance_cubit.dart
 import 'dart:io';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/api/api_exception.dart';
@@ -86,6 +85,16 @@ class MaintenanceCubit extends Cubit<MaintenanceState> {
     }
   }
 
+  // NUEVO: Eliminar
+  Future<void> eliminarAdjuntoIncidencia(int incidenciaId, int adjuntoId) async {
+    try {
+      await _repository.eliminarAdjuntoIncidencia(incidenciaId, adjuntoId);
+      emit(state.copyWith(successMessage: "Adjunto eliminado"));
+    } catch (e) {
+      emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: 'Error eliminando adjunto'));
+    }
+  }
+
 
   // --- REPARACIONES ---
 
@@ -137,6 +146,16 @@ class MaintenanceCubit extends Cubit<MaintenanceState> {
       emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: e.message));
     } catch (_) {
       emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: 'Error subiendo archivo'));
+    }
+  }
+
+  // NUEVO: Eliminar
+  Future<void> eliminarFactura(int reparacionId, int facturaId) async {
+    try {
+      await _repository.eliminarFactura(reparacionId, facturaId);
+      emit(state.copyWith(successMessage: "Factura eliminada"));
+    } catch (e) {
+      emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: 'Error eliminando factura'));
     }
   }
 }

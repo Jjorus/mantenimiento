@@ -1,4 +1,3 @@
-// Ruta: frontend/lib/presentation/features/inventory/screens/inventory_grid_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pluto_grid/pluto_grid.dart';
@@ -7,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../logic/inventory_cubit/inventory_cubit.dart';
 import '../../../../logic/inventory_cubit/inventory_state.dart';
 import '../../../../data/models/equipo_model.dart';
+import 'equipment_detail_dialog.dart'; // IMPORTANTE
 
 class InventoryGridScreen extends StatefulWidget {
   const InventoryGridScreen({super.key});
@@ -64,6 +64,17 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
     ];
   }
 
+  void _openDetailDialog(EquipoModel equipo) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => BlocProvider.value(
+        value: context.read<InventoryCubit>(),
+        child: EquipmentDetailDialog(equipo: equipo),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -101,6 +112,13 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
             rows: state.equipos.map((e) => _buildRow(e)).toList(),
             onLoaded: (PlutoGridOnLoadedEvent event) {
               event.stateManager.setShowColumnFilter(true);
+            },
+            onRowDoubleTap: (event) {
+              final id = event.row.cells['id']!.value as int;
+              try {
+                final equipo = state.equipos.firstWhere((e) => e.id == id);
+                _openDetailDialog(equipo);
+              } catch (_) {}
             },
             onSelected: (event) {
               final row = event.row;

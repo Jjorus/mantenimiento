@@ -1,4 +1,4 @@
-import 'dart:io'; // <--- Importante importar dart:io para 'File'
+import 'dart:io';
 import '../datasources/inventory_remote_ds.dart';
 import '../models/equipo_model.dart';
 
@@ -12,15 +12,21 @@ class InventoryRepository {
   Future<List<EquipoModel>> buscarEquipos({String? query}) => 
       _remoteDs.getEquipos(query: query);
 
-  // --- MÉTODOS NUEVOS (PASARELA) ---
+  // NUEVO: Notas
+  Future<void> actualizarNotas(int id, String notas) =>
+      _remoteDs.updateEquipo(id, notas: notas);
 
+  // Adjuntos
   Future<void> subirAdjuntoEquipo(int id, File file) => 
       _remoteDs.uploadAdjuntoEquipo(id, file);
 
-  // También te dejo estos listos por si los usas en la UI para ver/descargar
   Future<List<Map<String, String>>> listarAdjuntos(int id) =>
       _remoteDs.getAdjuntosEquipoURLs(id);
 
   Future<File> descargarArchivo(String url, String fileName) =>
       _remoteDs.downloadFile(url, fileName);
+
+  // NUEVO: Borrar
+  Future<void> eliminarAdjunto(int equipoId, int adjuntoId) =>
+      _remoteDs.deleteAdjuntoEquipo(equipoId, adjuntoId);
 }

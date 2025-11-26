@@ -45,6 +45,7 @@ class EquipoCreateIn(BaseModel):
     numero_serie: Optional[str] = Field(None, max_length=150)
     tipo: str = Field(..., min_length=2, max_length=100, examples=["Calibrador"])
     estado: EstadoEquipo = Field("OPERATIVO", examples=["OPERATIVO"])
+    notas: Optional[str] = Field(None, description="Comentarios o notas del equipo") # <--- NUEVO
     seccion_id: Optional[int] = Field(None, gt=0)
     ubicacion_id: Optional[int] = Field(None, gt=0)
     nfc_tag: Optional[str] = Field(None, max_length=64)
@@ -54,6 +55,7 @@ class EquipoUpdateIn(BaseModel):
     numero_serie: Optional[str] = Field(None, max_length=150)
     tipo: Optional[str] = Field(None, min_length=2, max_length=100)
     estado: Optional[EstadoEquipo] = Field(None)
+    notas: Optional[str] = Field(None) # <--- NUEVO
     seccion_id: Optional[int] = Field(None, gt=0)
     ubicacion_id: Optional[int] = Field(None, gt=0)
     nfc_tag: Optional[str] = Field(None, max_length=64)
@@ -116,6 +118,7 @@ def crear_equipo(
         numero_serie=_norm(payload.numero_serie),
         tipo=tipo_final,
         estado=payload.estado,
+        notas=_norm(payload.notas), # <--- ASIGNAR NOTAS
         seccion_id=payload.seccion_id,
         ubicacion_id=payload.ubicacion_id,
         nfc_tag=nfc_tag,
@@ -368,6 +371,8 @@ def actualizar_equipo(
         obj.ubicacion_id = payload.ubicacion_id
     if payload.nfc_tag is not None:
         obj.nfc_tag = nfc_tag
+    if payload.notas is not None: # <--- ACTUALIZAR NOTAS
+        obj.notas = _norm(payload.notas)
 
     try:
         db.add(obj)

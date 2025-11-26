@@ -1,4 +1,3 @@
-// Ruta: frontend/lib/data/repositories/maintenance_repository.dart
 import 'dart:io';
 import '../datasources/maintenance_remote_ds.dart';
 import '../models/incidencia_model.dart';
@@ -26,9 +25,12 @@ class MaintenanceRepository {
   Future<void> subirAdjuntoIncidencia(int incidenciaId, File file) =>
       _remoteDs.uploadAdjuntoIncidencia(incidenciaId, file);
 
-  // Devuelve lista de objetos {url, fileName}
   Future<List<Map<String, String>>> listarAdjuntosIncidencia(int incidenciaId) =>
       _remoteDs.getAdjuntosIncidenciaURLs(incidenciaId);
+
+  // NUEVO
+  Future<void> eliminarAdjuntoIncidencia(int incidenciaId, int adjuntoId) =>
+      _remoteDs.deleteAdjuntoIncidencia(incidenciaId, adjuntoId);
 
 
   // --- REPARACIONES ---
@@ -58,11 +60,14 @@ class MaintenanceRepository {
   Future<void> subirFactura(int reparacionId, File file) => 
       _remoteDs.subirFactura(reparacionId, file);
 
-  // Devuelve lista de objetos {url, fileName}
   Future<List<Map<String, String>>> listarFacturas(int reparacionId) => 
       _remoteDs.getFacturasURLs(reparacionId);
 
-  // Acepta fileName
+  // NUEVO
+  Future<void> eliminarFactura(int reparacionId, int facturaId) =>
+      _remoteDs.deleteFacturaReparacion(reparacionId, facturaId);
+
+  // Común
   Future<File> descargarArchivo(String url, String fileName) => 
       _remoteDs.downloadFile(url, fileName);
 }

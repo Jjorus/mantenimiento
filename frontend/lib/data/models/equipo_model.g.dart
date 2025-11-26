@@ -16,6 +16,7 @@ EquipoModel _$EquipoModelFromJson(Map<String, dynamic> json) => EquipoModel(
   ubicacionId: (json['ubicacion_id'] as num?)?.toInt(),
   seccionId: (json['seccion_id'] as num?)?.toInt(),
   creadoEn: json['creado_en'] as String?,
+  notas: json['notas'] as String?,
 );
 
 Map<String, dynamic> _$EquipoModelToJson(EquipoModel instance) =>
@@ -29,4 +30,5 @@ Map<String, dynamic> _$EquipoModelToJson(EquipoModel instance) =>
       'ubicacion_id': instance.ubicacionId,
       'seccion_id': instance.seccionId,
       'creado_en': instance.creadoEn,
+      'notas': instance.notas,
     };

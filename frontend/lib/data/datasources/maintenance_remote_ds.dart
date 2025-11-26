@@ -1,5 +1,3 @@
-// Ruta: frontend/lib/data/datasources/maintenance_remote_ds.dart
-// Ruta: frontend/lib/data/datasources/maintenance_remote_ds.dart
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
@@ -70,17 +68,21 @@ class MaintenanceRemoteDataSource {
     await _client.dio.post('/v1/incidencias/$incidenciaId/adjuntos', data: formData);
   }
 
-  // CORREGIDO: Devuelve lista de Maps con 'url' y 'fileName'
   Future<List<Map<String, String>>> getAdjuntosIncidenciaURLs(int incidenciaId) async {
     final response = await _client.dio.get('/v1/incidencias/$incidenciaId/adjuntos');
     return (response.data as List).map<Map<String, String>>((e) {
       final idAdjunto = e['id'];
-      final nombre = e['nombre_archivo']?.toString() ?? 'archivo'; // Recuperamos nombre
+      final nombre = e['nombre_archivo']?.toString() ?? 'archivo';
       return {
         'url': '/v1/incidencias/$incidenciaId/adjuntos/$idAdjunto',
         'fileName': nombre
       };
     }).toList();
+  }
+
+  // NUEVO: Eliminar adjunto incidencia
+  Future<void> deleteAdjuntoIncidencia(int incidenciaId, int adjuntoId) async {
+    await _client.dio.delete('/v1/incidencias/$incidenciaId/adjuntos/$adjuntoId');
   }
 
   // --- REPARACIONES ---
@@ -132,12 +134,11 @@ class MaintenanceRemoteDataSource {
     await _client.dio.post('/v1/reparaciones/$reparacionId/factura', data: formData);
   }
 
-  // CORREGIDO: Devuelve lista de Maps con 'url' y 'fileName'
   Future<List<Map<String, String>>> getFacturasURLs(int reparacionId) async {
     final response = await _client.dio.get('/v1/reparaciones/$reparacionId/facturas');
     return (response.data as List).map<Map<String, String>>((e) {
       final idFactura = e['id'];
-      final nombre = e['nombre_archivo']?.toString() ?? 'archivo'; // Recuperamos nombre original
+      final nombre = e['nombre_archivo']?.toString() ?? 'archivo';
       return {
         'url': '/v1/reparaciones/$reparacionId/facturas/$idFactura',
         'fileName': nombre
@@ -145,12 +146,15 @@ class MaintenanceRemoteDataSource {
     }).toList();
   }
 
+  // NUEVO: Eliminar factura
+  Future<void> deleteFacturaReparacion(int reparacionId, int facturaId) async {
+    await _client.dio.delete('/v1/reparaciones/$reparacionId/facturas/$facturaId');
+  }
+
   // --- COMÚN ---
 
-  // CORREGIDO: Acepta 'fileName' para preservar extensión
   Future<File> downloadFile(String url, String fileName) async {
     final tempDir = await getTemporaryDirectory();
-    // Usamos el nombre original para mantener la extensión (.pdf, .jpg)
     final savePath = '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_$fileName';
 
     await _client.dio.download(

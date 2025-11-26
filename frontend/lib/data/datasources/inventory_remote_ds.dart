@@ -10,13 +10,11 @@ class InventoryRemoteDataSource {
 
   InventoryRemoteDataSource(this._client);
 
-  // Buscar por NFC
   Future<EquipoModel> getEquipoByNfc(String tag) async {
     final response = await _client.dio.get('/v1/equipos/buscar/nfc/$tag');
     return EquipoModel.fromJson(response.data);
   }
 
-  // Listado general (Parámetros opcionales con nombre)
   Future<List<EquipoModel>> getEquipos({String? query, int? ubicacionId}) async {
     final response = await _client.dio.get(
       '/v1/equipos',
@@ -25,21 +23,28 @@ class InventoryRemoteDataSource {
         if (ubicacionId != null) 'ubicacion_id': ubicacionId,
       },
     );
-    
-    // Backend devuelve lista plana: [ {}, {} ]
     return (response.data as List)
         .map((e) => EquipoModel.fromJson(e))
         .toList();
   }
 
-  // --- NUEVO: Gestión de Adjuntos (Inventario) ---
+  // --- NUEVO: Actualizar equipo (para notas) ---
+  Future<void> updateEquipo(int id, {String? notas}) async {
+    await _client.dio.patch(
+      '/v1/equipos/$id',
+      data: {
+        if (notas != null) 'notas': notas,
+      }
+    );
+  }
+
+  // --- Adjuntos ---
 
   Future<void> uploadAdjuntoEquipo(int equipoId, File file) async {
     final fileName = file.path.split('/').last;
     final formData = FormData.fromMap({
       'file': await MultipartFile.fromFile(file.path, filename: fileName),
     });
-    // POST /v1/equipos/{id}/adjuntos
     await _client.dio.post('/v1/equipos/$equipoId/adjuntos', data: formData);
   }
 
@@ -49,8 +54,6 @@ class InventoryRemoteDataSource {
       final idAdjunto = e['id'];
       final nombre = e['nombre_archivo']?.toString() ?? 'archivo';
       return {
-        // La URL viene parcial del backend, aseguramos la ruta completa si es necesario
-        // Pero en tu lógica actual usas el endpoint de descarga
         'url': '/v1/equipos/$equipoId/adjuntos/$idAdjunto',
         'fileName': nombre
       };
@@ -68,5 +71,10 @@ class InventoryRemoteDataSource {
     );
 
     return File(savePath);
+  }
+
+  // NUEVO: Eliminar
+  Future<void> deleteAdjuntoEquipo(int equipoId, int adjuntoId) async {
+    await _client.dio.delete('/v1/equipos/$equipoId/adjuntos/$adjuntoId');
   }
 }

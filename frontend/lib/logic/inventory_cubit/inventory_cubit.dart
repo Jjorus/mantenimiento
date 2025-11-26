@@ -1,4 +1,3 @@
-//lib/logic/inventory_cubit/inventory_cubit.dart
 import 'dart:io';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../data/repositories/inventory_repository.dart';
@@ -36,14 +35,30 @@ class InventoryCubit extends Cubit<InventoryState> {
   }
 
   Future<void> subirAdjuntoEquipo(int equipoId, File file) async {
-    // Podrías añadir un estado específico de 'uploading' si quisieras feedback visual
-    // Por ahora lo dejamos simple para no romper la UI actual
     try {
       await _repository.subirAdjuntoEquipo(equipoId, file);
-      // Opcional: Recargar inventario si fuera necesario
-      // loadInventory(); 
     } catch (e) {
-      // Manejar error silenciosamente o emitir un estado de error temporal
+      // Manejar error
+    }
+  }
+
+  // NUEVO
+  Future<void> eliminarAdjuntoEquipo(int equipoId, int adjuntoId) async {
+    try {
+      await _repository.eliminarAdjunto(equipoId, adjuntoId);
+    } catch (e) {
+      throw Exception("Error al eliminar adjunto");
+    }
+  }
+
+  // NUEVO: Notas
+  Future<void> guardarNotas(int equipoId, String notas) async {
+    try {
+      await _repository.actualizarNotas(equipoId, notas);
+      // Recargar para que el grid tenga el dato actualizado
+      loadInventory(); 
+    } catch (e) {
+      throw Exception("Error guardando notas");
     }
   }
 }
