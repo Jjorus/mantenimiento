@@ -10,7 +10,7 @@ class MaintenanceRepository {
   MaintenanceRepository({required MaintenanceRemoteDataSource remoteDs}) 
       : _remoteDs = remoteDs;
 
-  // Incidencias
+  // --- INCIDENCIAS ---
   Future<List<IncidenciaModel>> getIncidencias({int? equipoId, String? estado}) => 
       _remoteDs.getIncidencias(equipoId: equipoId, estado: estado);
 
@@ -20,7 +20,18 @@ class MaintenanceRepository {
   Future<void> cambiarEstadoIncidencia(int id, String nuevoEstado) =>
       _remoteDs.updateIncidenciaEstado(id, nuevoEstado);
 
-  // Reparaciones
+  Future<void> actualizarIncidencia(int id, {String? descripcion}) =>
+      _remoteDs.updateIncidencia(id, descripcion: descripcion);
+
+  Future<void> subirAdjuntoIncidencia(int incidenciaId, File file) =>
+      _remoteDs.uploadAdjuntoIncidencia(incidenciaId, file);
+
+  // Devuelve lista de objetos {url, fileName}
+  Future<List<Map<String, String>>> listarAdjuntosIncidencia(int incidenciaId) =>
+      _remoteDs.getAdjuntosIncidenciaURLs(incidenciaId);
+
+
+  // --- REPARACIONES ---
   Future<void> crearReparacion({
     required int equipoId,
     required int incidenciaId,
@@ -41,13 +52,17 @@ class MaintenanceRepository {
   Future<List<ReparacionModel>> getReparaciones({int? equipoId}) => 
       _remoteDs.getReparaciones(equipoId: equipoId);
 
-  // Archivos
-  Future<void> subirFactura(int reparacionId, File file) => 
-      _remoteDs.uploadFactura(reparacionId, file);
+  Future<void> actualizarReparacion(int id, {String? descripcion}) =>
+      _remoteDs.updateReparacion(id, descripcion: descripcion);
 
-  Future<List<String>> listarFacturas(int reparacionId) => 
+  Future<void> subirFactura(int reparacionId, File file) => 
+      _remoteDs.subirFactura(reparacionId, file);
+
+  // Devuelve lista de objetos {url, fileName}
+  Future<List<Map<String, String>>> listarFacturas(int reparacionId) => 
       _remoteDs.getFacturasURLs(reparacionId);
 
-  Future<File> descargarArchivo(String url) => 
-      _remoteDs.downloadFile(url);
+  // Acepta fileName
+  Future<File> descargarArchivo(String url, String fileName) => 
+      _remoteDs.downloadFile(url, fileName);
 }

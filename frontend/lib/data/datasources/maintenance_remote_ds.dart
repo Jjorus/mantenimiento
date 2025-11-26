@@ -1,4 +1,5 @@
 // Ruta: frontend/lib/data/datasources/maintenance_remote_ds.dart
+// Ruta: frontend/lib/data/datasources/maintenance_remote_ds.dart
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
@@ -16,7 +17,7 @@ class MaintenanceRemoteDataSource {
   
   Future<List<IncidenciaModel>> getIncidencias({
     int? equipoId,
-    String? estado, // "ABIERTA", "EN_PROGRESO", "CERRADA"
+    String? estado,
     String? query,
   }) async {
     final response = await _client.dio.get(
@@ -43,7 +44,6 @@ class MaintenanceRemoteDataSource {
     );
   }
 
-  // Nueva acción: Cambiar estado
   Future<void> updateIncidenciaEstado(int id, String nuevoEstado) async {
     if (nuevoEstado == 'CERRADA') {
       await _client.dio.post('/v1/incidencias/$id/cerrar');
@@ -55,13 +55,40 @@ class MaintenanceRemoteDataSource {
     }
   }
 
+  Future<void> updateIncidencia(int id, {String? descripcion}) async {
+    await _client.dio.patch(
+      '/v1/incidencias/$id',
+      data: { if (descripcion != null) 'descripcion': descripcion },
+    );
+  }
+
+  Future<void> uploadAdjuntoIncidencia(int incidenciaId, File file) async {
+    final fileName = file.path.split('/').last;
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(file.path, filename: fileName),
+    });
+    await _client.dio.post('/v1/incidencias/$incidenciaId/adjuntos', data: formData);
+  }
+
+  // CORREGIDO: Devuelve lista de Maps con 'url' y 'fileName'
+  Future<List<Map<String, String>>> getAdjuntosIncidenciaURLs(int incidenciaId) async {
+    final response = await _client.dio.get('/v1/incidencias/$incidenciaId/adjuntos');
+    return (response.data as List).map<Map<String, String>>((e) {
+      final idAdjunto = e['id'];
+      final nombre = e['nombre_archivo']?.toString() ?? 'archivo'; // Recuperamos nombre
+      return {
+        'url': '/v1/incidencias/$incidenciaId/adjuntos/$idAdjunto',
+        'fileName': nombre
+      };
+    }).toList();
+  }
+
   // --- REPARACIONES ---
   
   Future<List<ReparacionModel>> getReparaciones({int? equipoId}) async {
     final path = equipoId != null 
         ? '/v1/reparaciones/equipo/$equipoId' 
         : '/v1/reparaciones';
-        
     final response = await _client.dio.get(path);
     return (response.data as List)
         .map((e) => ReparacionModel.fromJson(e))
@@ -85,35 +112,46 @@ class MaintenanceRemoteDataSource {
         'descripcion': descripcion,
         'coste_materiales': costeMateriales,
         'coste_mano_obra': costeManoObra,
-        'estado': 'ABIERTA', // Estado inicial por defecto
+        'estado': 'ABIERTA',
       },
     );
   }
-  
-  // --- ARCHIVOS (FACTURAS) ---
-  
-  Future<void> uploadFactura(int reparacionId, File file) async {
-    final fileName = file.path.split('/').last; 
 
-    final formData = FormData.fromMap({
-      'file': await MultipartFile.fromFile(file.path, filename: fileName),
-    });
-
-    await _client.dio.post(
-      '/v1/reparaciones/$reparacionId/factura',
-      data: formData,
+  Future<void> updateReparacion(int id, {String? descripcion}) async {
+    await _client.dio.patch(
+      '/v1/reparaciones/$id',
+      data: { if (descripcion != null) 'descripcion': descripcion },
     );
   }
 
-  Future<List<String>> getFacturasURLs(int reparacionId) async {
-    final response = await _client.dio.get('/v1/reparaciones/$reparacionId/facturas');
-    return (response.data as List).map((e) => e['ruta_relativa'].toString()).toList();
+  Future<void> subirFactura(int reparacionId, File file) async {
+    final fileName = file.path.split('/').last; 
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(file.path, filename: fileName),
+    });
+    await _client.dio.post('/v1/reparaciones/$reparacionId/factura', data: formData);
   }
 
-  Future<File> downloadFile(String url) async {
+  // CORREGIDO: Devuelve lista de Maps con 'url' y 'fileName'
+  Future<List<Map<String, String>>> getFacturasURLs(int reparacionId) async {
+    final response = await _client.dio.get('/v1/reparaciones/$reparacionId/facturas');
+    return (response.data as List).map<Map<String, String>>((e) {
+      final idFactura = e['id'];
+      final nombre = e['nombre_archivo']?.toString() ?? 'archivo'; // Recuperamos nombre original
+      return {
+        'url': '/v1/reparaciones/$reparacionId/facturas/$idFactura',
+        'fileName': nombre
+      };
+    }).toList();
+  }
+
+  // --- COMÚN ---
+
+  // CORREGIDO: Acepta 'fileName' para preservar extensión
+  Future<File> downloadFile(String url, String fileName) async {
     final tempDir = await getTemporaryDirectory();
-    final fileName = "${DateTime.now().millisecondsSinceEpoch}_${url.split('/').last}";
-    final savePath = '${tempDir.path}/$fileName';
+    // Usamos el nombre original para mantener la extensión (.pdf, .jpg)
+    final savePath = '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_$fileName';
 
     await _client.dio.download(
       url,

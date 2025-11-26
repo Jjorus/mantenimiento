@@ -10,6 +10,7 @@ import '../../../../logic/maintenance_cubit/maintenance_state.dart';
 import '../../../../data/models/incidencia_model.dart';
 import '../../../../data/models/reparacion_model.dart';
 import 'repair_detail_dialog.dart';
+import 'incident_detail_dialog.dart';
 
 class MaintenanceScreen extends StatefulWidget {
   const MaintenanceScreen({super.key});
@@ -50,21 +51,17 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
             ],
           ),
           actions: [
-            // --- BOTONES DE CREACIÓN ---
             IconButton(
               icon: const Icon(Icons.add_alert_rounded),
               tooltip: "Nueva Incidencia",
               onPressed: () => context.push('/incidencia/new'),
             ),
             IconButton(
-              // CORRECCIÓN 1: Icono válido (Icons.build con un + no existe nativo así, usamos add_circle o build)
               icon: const Icon(Icons.build), 
               tooltip: "Nueva Reparación",
               onPressed: () => context.push('/reparacion/new'),       
             ),
             const SizedBox(width: 16),
-            
-            // --- FILTROS ---
             DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 value: _filterValue,
@@ -84,10 +81,7 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
                 },
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _loadData,
-            )
+            IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData)
           ],
         ),
         body: BlocConsumer<MaintenanceCubit, MaintenanceState>(
@@ -134,20 +128,27 @@ class _IncidenciasGrid extends StatelessWidget {
   final List<IncidenciaModel> incidencias;
   final List<ReparacionModel> reparaciones;
 
-  const _IncidenciasGrid({
-    super.key, 
-    required this.incidencias,
-    required this.reparaciones,
-  });
+  const _IncidenciasGrid({super.key, required this.incidencias, required this.reparaciones});
 
   String _formatDateTime(String? iso) {
     if (iso == null || iso.isEmpty) return "-";
     try {
       final dt = DateTime.parse(iso).toLocal();
       return DateFormat('dd/MM/yyyy HH:mm').format(dt);
-    } catch (_) {
-      return iso;
-    }
+    } catch (_) { return iso; }
+  }
+
+  void _abrirDetalle(BuildContext context, IncidenciaModel incidencia) {
+    showDialog(
+      context: context,
+      builder: (_) => IncidentDetailDialog(incidencia: incidencia),
+    ).then((_) async {
+      // CORRECCIÓN: Retraso para evitar colisión con el cierre de la ventana
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (context.mounted) {
+        context.read<MaintenanceCubit>().loadDashboardData();
+      }
+    });
   }
 
   @override
@@ -157,8 +158,6 @@ class _IncidenciasGrid extends StatelessWidget {
         PlutoColumn(title: 'ID', field: 'id', type: PlutoColumnType.number(), width: 70, readOnly: true),
         PlutoColumn(title: 'Equipo', field: 'equipo', type: PlutoColumnType.number(), width: 90),
         PlutoColumn(title: 'Título', field: 'titulo', type: PlutoColumnType.text(), width: 200),
-        
-        // --- COLUMNA ESTADO ---
         PlutoColumn(title: 'Estado', field: 'estado', type: PlutoColumnType.text(), width: 120,
           renderer: (ctx) {
             final val = ctx.cell.value.toString();
@@ -173,50 +172,30 @@ class _IncidenciasGrid extends StatelessWidget {
             );
           },
         ),
-
-        // --- COLUMNA REPARACIÓN ASOCIADA ---
         PlutoColumn(
-          title: 'Reparación',
-          field: 'has_repair',
-          type: PlutoColumnType.text(),
-          width: 100,
+          title: 'Reparación', field: 'has_repair', type: PlutoColumnType.text(), width: 100,
           enableSorting: false,
           renderer: (ctx) {
             final hasRepair = ctx.cell.value == 'si';
-            return Icon(
-              hasRepair ? Icons.build_circle : Icons.highlight_off,
-              color: hasRepair ? Colors.green : Colors.grey.withOpacity(0.3),
-            );
+            return Icon(hasRepair ? Icons.build_circle : Icons.highlight_off, color: hasRepair ? Colors.green : Colors.grey.withOpacity(0.3));
           },
         ),
-
-        // --- COLUMNA FECHA FORMATEADA ---
+        PlutoColumn(title: 'Ver', field: 'details', type: PlutoColumnType.text(), width: 80, enableSorting: false, renderer: (ctx) => const Icon(Icons.folder_open, color: Colors.blue)),
         PlutoColumn(title: 'Fecha', field: 'fecha', type: PlutoColumnType.text(), width: 160),
-        
-        // --- ACCIONES ---
-        PlutoColumn(
-          title: 'Acciones',
-          field: 'actions',
-          type: PlutoColumnType.text(),
-          width: 160,
-          enableSorting: false,
+        PlutoColumn(title: 'Acciones', field: 'actions', type: PlutoColumnType.text(), width: 160, enableSorting: false,
           renderer: (ctx) {
             final estado = ctx.row.cells['estado']!.value.toString();
             final id = ctx.row.cells['id']!.value as int;
-
             if (estado == 'CERRADA') return const SizedBox.shrink();
-
             return Row(
               children: [
                 if (estado == 'ABIERTA')
                   IconButton(
                     icon: const Icon(Icons.play_arrow, color: Colors.blue),
-                    tooltip: "En Progreso",
                     onPressed: () => context.read<MaintenanceCubit>().cambiarEstadoIncidencia(id, 'EN_PROGRESO'),
                   ),
                 IconButton(
                   icon: const Icon(Icons.check_circle, color: Colors.green),
-                  tooltip: "Cerrar",
                   onPressed: () => context.read<MaintenanceCubit>().cambiarEstadoIncidencia(id, 'CERRADA'),
                 ),
               ],
@@ -225,9 +204,7 @@ class _IncidenciasGrid extends StatelessWidget {
         ),
       ],
       rows: incidencias.map((inc) {
-        // Lógica para ver si tiene reparación
         final tieneRep = reparaciones.any((rep) => rep.incidenciaId == inc.id);
-
         return PlutoRow(
           cells: {
             'id': PlutoCell(value: inc.id),
@@ -235,11 +212,24 @@ class _IncidenciasGrid extends StatelessWidget {
             'titulo': PlutoCell(value: inc.titulo),
             'estado': PlutoCell(value: inc.estado),
             'has_repair': PlutoCell(value: tieneRep ? 'si' : 'no'),
+            'details': PlutoCell(value: 'abrir'),
             'fecha': PlutoCell(value: _formatDateTime(inc.fecha)),
             'actions': PlutoCell(value: ''),
           },
         );
       }).toList(),
+      onRowDoubleTap: (event) {
+        final id = event.row.cells['id']!.value as int;
+        final inc = incidencias.firstWhere((element) => element.id == id);
+        _abrirDetalle(context, inc);
+      },
+      onSelected: (event) {
+        if (event.cell?.column.field == 'details') {
+          final id = event.row!.cells['id']!.value as int;
+          final inc = incidencias.firstWhere((element) => element.id == id);
+          _abrirDetalle(context, inc);
+        }
+      },
       configuration: const PlutoGridConfiguration(
         style: PlutoGridStyleConfig(gridBorderColor: Colors.transparent),
         columnSize: PlutoGridColumnSizeConfig(autoSizeMode: PlutoAutoSizeMode.scale),
@@ -250,7 +240,6 @@ class _IncidenciasGrid extends StatelessWidget {
 
 class _ReparacionesGrid extends StatelessWidget {
   final List<ReparacionModel> reparaciones;
-
   const _ReparacionesGrid({super.key, required this.reparaciones});
 
   String _formatDateTime(String? iso) {
@@ -258,17 +247,30 @@ class _ReparacionesGrid extends StatelessWidget {
     try {
       final dt = DateTime.parse(iso).toLocal();
       return DateFormat('dd/MM/yyyy HH:mm').format(dt);
-    } catch (_) {
-      return iso;
+    } catch (_) { return iso; }
+  }
+
+  void _abrirDetalle(BuildContext context, PlutoRow row) {
+    final id = row.cells['id']!.value as int;
+    try {
+      final reparacion = reparaciones.firstWhere((r) => r.id == id);
+      showDialog(
+        context: context,
+        builder: (_) => RepairDetailDialog(reparacion: reparacion),
+      ).then((_) async {
+        // CORRECCIÓN: Retraso de seguridad antes de recargar
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (context.mounted) {
+          context.read<MaintenanceCubit>().loadDashboardData();
+        }
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error al abrir detalle")));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (reparaciones.isEmpty) {
-      return const Center(child: Text("No hay reparaciones registradas"));
-    }
-
     return PlutoGrid(
       columns: [
         PlutoColumn(title: 'ID', field: 'id', type: PlutoColumnType.number(), width: 80, readOnly: true),
@@ -277,10 +279,7 @@ class _ReparacionesGrid extends StatelessWidget {
         PlutoColumn(title: 'Estado', field: 'estado', type: PlutoColumnType.text(), width: 120),
         PlutoColumn(title: 'Inicio', field: 'fecha_inicio', type: PlutoColumnType.text(), width: 150),
         PlutoColumn(title: 'Coste', field: 'coste', type: PlutoColumnType.currency(symbol: '€'), width: 130),
-        PlutoColumn(title: 'Ver', field: 'actions', type: PlutoColumnType.text(), width: 80,
-          enableSorting: false,
-          renderer: (ctx) => const Icon(Icons.folder_open, color: Colors.blue),
-        ),
+        PlutoColumn(title: 'Ver', field: 'actions', type: PlutoColumnType.text(), width: 80, enableSorting: false, renderer: (ctx) => const Icon(Icons.folder_open, color: Colors.blue)),
       ],
       rows: reparaciones.map((e) => PlutoRow(
         cells: {
@@ -293,38 +292,14 @@ class _ReparacionesGrid extends StatelessWidget {
           'actions': PlutoCell(value: 'abrir'),
         },
       )).toList(),
-      
-      // CORRECCIÓN 2: Eliminados los checks de nulidad innecesarios para 'row'
-      onRowDoubleTap: (event) {
-        final row = event.row;
-        _abrirDetalle(context, row);
-      },
+      onRowDoubleTap: (event) => _abrirDetalle(context, event.row),
       onSelected: (event) {
-        final row = event.row;
-        if (row != null && event.cell?.column.field == 'actions') {
-          _abrirDetalle(context, row);
-        }
+        if (event.cell?.column.field == 'actions') _abrirDetalle(context, event.row!);
       },
       configuration: const PlutoGridConfiguration(
         style: PlutoGridStyleConfig(gridBorderColor: Colors.transparent),
         columnSize: PlutoGridColumnSizeConfig(autoSizeMode: PlutoAutoSizeMode.scale),
       ),
     );
-  }
-
-  void _abrirDetalle(BuildContext context, PlutoRow row) {
-    final id = row.cells['id']!.value as int;
-    // Buscamos por ID de forma segura
-    try {
-      final reparacion = reparaciones.firstWhere((r) => r.id == id);
-      showDialog(
-        context: context,
-        builder: (_) => RepairDetailDialog(reparacion: reparacion),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Error al abrir detalle")),
-      );
-    }
   }
 }
