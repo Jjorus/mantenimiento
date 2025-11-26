@@ -12,8 +12,10 @@ from .base import (
     Usuario,
 )
 
-# Importamos explícitamente el nuevo modelo de facturas de reparación
+# Modelos de adjuntos
 from .reparacion_factura import ReparacionFactura
+from .incidencia_adjunto import IncidenciaAdjunto # Nuevo
+from .equipo_adjunto import EquipoAdjunto # Nuevo
 
 __all__ = [
     "SQLModel",
@@ -26,4 +28,6 @@ __all__ = [
     "Movimiento",
     "Usuario",
     "ReparacionFactura",
+    "IncidenciaAdjunto",
+    "EquipoAdjunto",
 ]

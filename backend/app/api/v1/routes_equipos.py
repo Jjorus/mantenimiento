@@ -1,24 +1,25 @@
 # backend/app/api/v1/routes_equipos.py
 from typing import Optional, List, Dict, Any, Literal, get_args
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request, Query, UploadFile, File
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from sqlalchemy.exc import IntegrityError, DBAPIError
 from sqlalchemy import func
 
 from app.core.deps import get_db, current_user, require_role
+from app.core.file_manager import FileManager
 from app.models.equipo import Equipo
 from app.models.seccion import Seccion
 from app.models.ubicacion import Ubicacion
+from app.models.equipo_adjunto import EquipoAdjunto
 
 router = APIRouter(prefix="/equipos", tags=["equipos"])
 
 # ---------- Constantes y Helpers ----------
 EstadoEquipo = Literal["OPERATIVO", "MANTENIMIENTO", "BAJA", "CALIBRACION", "RESERVA"]
 TIPOS_VALIDOS = {"Calibrador", "Multímetro", "Generador", "Osciloscopio", "Fuente", "Analizador", "Otro"}
-# Mapa canónico: si llega "multimetro" -> "Multímetro", etc.
 TIPOS_CANONICOS = {t.lower(): t for t in TIPOS_VALIDOS}
-
 ALLOWED_ORDEN = {"id_asc", "id_desc", "identidad_asc", "identidad_desc", "tipo_asc", "tipo_desc"}
 
 def _norm(s: Optional[str]) -> Optional[str]:
@@ -31,7 +32,6 @@ def _raise_422(errors: List[Dict[str, Any]]) -> None:
     raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=errors)
 
 def _validar_tipo(tipo: str, errors: List[Dict[str, Any]]) -> None:
-    """Valida que el tipo esté en la lista de tipos válidos."""
     if tipo not in TIPOS_VALIDOS:
         errors.append({
             "loc": ["body", "tipo"],
@@ -61,7 +61,7 @@ class EquipoUpdateIn(BaseModel):
 class NFCAssignIn(BaseModel):
     nfc_tag: str = Field(..., min_length=1, max_length=64)
 
-# ---------- Endpoints ----------
+# ---------- Endpoints CRUD ----------
 @router.post(
     "",
     response_model=Equipo,
@@ -76,13 +76,6 @@ def crear_equipo(
     db: Session = Depends(get_db),
     user=Depends(current_user),
 ):
-    """
-    Crea un equipo.
-    - Normaliza identidad/nfc_tag en minúsculas (case-insensitive).
-    - Verifica FKs de seccion/ubicacion y su coherencia.
-    - Valida tipo y estado.
-    - Maneja unicidad contra condiciones de carrera (409).
-    """
     errors: List[Dict[str, Any]] = []
 
     identidad = _norm(payload.identidad)
@@ -90,18 +83,15 @@ def crear_equipo(
     nfc_tag = _norm(payload.nfc_tag)
     nfc_tag = nfc_tag.lower() if nfc_tag else None
 
-    # Validaciones de negocio (con canonización opcional)
     tipo_req = (payload.tipo or "").strip()
     _validar_tipo(tipo_req, errors)
     tipo_final = TIPOS_CANONICOS.get(tipo_req.lower(), tipo_req)
 
-    # FKs
     if payload.seccion_id is not None and not db.get(Seccion, payload.seccion_id):
         errors.append({"loc": ["body", "seccion_id"], "msg": "Sección inexistente", "type": "value_error.foreign_key"})
     if payload.ubicacion_id is not None and not db.get(Ubicacion, payload.ubicacion_id):
         errors.append({"loc": ["body", "ubicacion_id"], "msg": "Ubicación inexistente", "type": "value_error.foreign_key"})
 
-    # Coherencia sección-ubicación (si llegan ambos)
     if payload.seccion_id is not None and payload.ubicacion_id is not None:
         u = db.get(Ubicacion, payload.ubicacion_id)
         if u and u.seccion_id and u.seccion_id != payload.seccion_id:
@@ -111,7 +101,6 @@ def crear_equipo(
                 "type": "value_error"
             })
 
-    # Pre-chequeos de unicidad (UX) reforzados por índices únicos funcionales
     if identidad:
         if db.exec(select(Equipo).where(func.lower(Equipo.identidad) == identidad)).first():
             errors.append({"loc": ["body", "identidad"], "msg": "identidad ya existe", "type": "value_error.unique"})
@@ -138,7 +127,6 @@ def crear_equipo(
         db.refresh(equipo)
     except IntegrityError:
         db.rollback()
-        # Carrera con índices únicos (LOWER(...))
         raise HTTPException(status.HTTP_409_CONFLICT, "Conflicto de integridad (duplicado de identidad o nfc_tag)")
     except DBAPIError:
         db.rollback()
@@ -159,21 +147,17 @@ def crear_equipo(
 def listar_equipos(
     response: Response,
     db: Session = Depends(get_db),
-    limit: int = Query(50, ge=1, le=200, description="Resultados por página"),
-    offset: int = Query(0, ge=0, description="Desplazamiento"),
-    q: Optional[str] = Query(None, description="Búsqueda por identidad/serie/tipo (contiene)"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    q: Optional[str] = Query(None),
     seccion_id: Optional[int] = Query(None, gt=0),
     ubicacion_id: Optional[int] = Query(None, gt=0),
     estado: Optional[EstadoEquipo] = Query(None),
-    estados: Optional[str] = Query(None, description="Múltiples estados separados por coma"),
-    ordenar: Optional[str] = Query("id_desc", description="id_asc|id_desc|identidad_asc|identidad_desc|tipo_asc|tipo_desc"),
-    identidad_eq: Optional[str] = Query(None, description="Identidad exacta (case-insensitive)"),
-    nfc_tag_eq: Optional[str] = Query(None, description="nfc_tag exacto (case-insensitive)"),
+    estados: Optional[str] = Query(None),
+    ordenar: Optional[str] = Query("id_desc"),
+    identidad_eq: Optional[str] = Query(None),
+    nfc_tag_eq: Optional[str] = Query(None),
 ):
-    """
-    Lista equipos con filtros y paginación.
-    Devuelve `X-Total-Count` con el total sin paginar.
-    """
     if ordenar not in ALLOWED_ORDEN:
         _raise_422([{
             "loc": ["query", "ordenar"],
@@ -184,7 +168,6 @@ def listar_equipos(
     stmt = select(Equipo)
     count_stmt = select(func.count()).select_from(Equipo)
 
-    # Filtros
     conds = []
     if q:
         like = f"%{q}%"
@@ -209,7 +192,6 @@ def listar_equipos(
         stmt = stmt.where(*conds)
         count_stmt = count_stmt.where(*conds)
 
-    # Ordenamiento (estable y con nulos al final en identidad)
     if ordenar == "id_asc":
         stmt = stmt.order_by(Equipo.id.asc())
     elif ordenar == "identidad_asc":
@@ -220,10 +202,9 @@ def listar_equipos(
         stmt = stmt.order_by(Equipo.tipo.asc(), Equipo.id.asc())
     elif ordenar == "tipo_desc":
         stmt = stmt.order_by(Equipo.tipo.desc(), Equipo.id.desc())
-    else:  # id_desc por defecto
+    else:
         stmt = stmt.order_by(Equipo.id.desc())
 
-    # IMPORTANT: SQLModel con COUNT devuelve el escalar directamente
     total = db.exec(count_stmt).one()
     response.headers["X-Total-Count"] = str(total)
 
@@ -251,9 +232,6 @@ def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
     dependencies=[Depends(current_user)],
 )
 def buscar_equipo_por_nfc(nfc_tag: str, db: Session = Depends(get_db)):
-    """
-    Buscar equipo por NFC tag exacto (case-insensitive).
-    """
     nfc_tag_clean = nfc_tag.strip().lower()
     equipo = db.exec(
         select(Equipo).where(func.lower(Equipo.nfc_tag) == nfc_tag_clean)
@@ -275,9 +253,6 @@ def buscar_equipo_por_nfc(nfc_tag: str, db: Session = Depends(get_db)):
     dependencies=[Depends(current_user)],
 )
 def buscar_equipo_por_identidad(identidad: str, db: Session = Depends(get_db)):
-    """
-    Buscar equipo por identidad exacta (case-insensitive).
-    """
     ident = (identidad or "").strip().lower()
     equipo = db.exec(
         select(Equipo).where(func.lower(Equipo.identidad) == ident)
@@ -299,9 +274,6 @@ def listar_equipos_sin_ubicacion(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """
-    Listar equipos que no tienen ubicación asignada.
-    """
     stmt = (
         select(Equipo)
         .where(Equipo.ubicacion_id.is_(None))
@@ -329,20 +301,12 @@ def actualizar_equipo(
     db: Session = Depends(get_db),
     user=Depends(current_user),
 ):
-    """
-    Actualiza campos del equipo.
-    - Normaliza identidad/nfc_tag en minúsculas.
-    - Verifica FKs y tipos si se envían.
-    - Coherencia sección-ubicación.
-    - Maneja unicidad con IntegrityError (carreras).
-    """
     obj = db.get(Equipo, equipo_id)
     if not obj:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Equipo no encontrado")
 
     errors: List[Dict[str, Any]] = []
 
-    # Validaciones de negocio + canonización opcional del tipo
     if payload.tipo is not None:
         tipo_req = payload.tipo.strip()
         _validar_tipo(tipo_req, errors)
@@ -358,13 +322,11 @@ def actualizar_equipo(
                 "type": "value_error"
             })
 
-    # FKs
     if payload.seccion_id is not None and not db.get(Seccion, payload.seccion_id):
         errors.append({"loc": ["body", "seccion_id"], "msg": "Sección inexistente", "type": "value_error.foreign_key"})
     if payload.ubicacion_id is not None and not db.get(Ubicacion, payload.ubicacion_id):
         errors.append({"loc": ["body", "ubicacion_id"], "msg": "Ubicación inexistente", "type": "value_error.foreign_key"})
 
-    # Coherencia sección-ubicación (considera valores nuevos o actuales)
     new_seccion_id = payload.seccion_id if payload.seccion_id is not None else obj.seccion_id
     new_ubic_id    = payload.ubicacion_id if payload.ubicacion_id is not None else obj.ubicacion_id
     if new_seccion_id is not None and new_ubic_id is not None:
@@ -376,7 +338,6 @@ def actualizar_equipo(
                 "type": "value_error"
             })
 
-    # Pre-validaciones de unicidad (case-insensitive)
     identidad = _norm(payload.identidad) if payload.identidad is not None else None
     identidad = identidad.lower() if identidad else None
     nfc_tag = _norm(payload.nfc_tag) if payload.nfc_tag is not None else None
@@ -393,7 +354,6 @@ def actualizar_equipo(
     if errors:
         _raise_422(errors)
 
-    # Asignaciones condicionadas
     if payload.identidad is not None:
         obj.identidad = identidad
     if payload.numero_serie is not None:
@@ -428,10 +388,6 @@ def actualizar_equipo(
     dependencies=[Depends(require_role("ADMIN"))],
 )
 def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
-    """
-    Elimina un equipo (solo ADMIN).
-    Considera restricciones de FK en movimientos/incidencias/reparaciones.
-    """
     obj = db.get(Equipo, equipo_id)
     if not obj:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Equipo no encontrado")
@@ -439,7 +395,7 @@ def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
     try:
         db.delete(obj)
         db.commit()
-        return  # 204 No Content
+        return 
     except IntegrityError:
         db.rollback()
         raise HTTPException(
@@ -454,12 +410,8 @@ def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
     dependencies=[Depends(current_user)],
 )
 def resumen_estadisticas(db: Session = Depends(get_db)):
-    """
-    Resumen estadístico de equipos.
-    """
     total = db.exec(select(func.count(Equipo.id))).one()
 
-    # Evitar claves None en el dict final
     por_estado_rows = db.exec(
         select(Equipo.estado, func.count(Equipo.id)).group_by(Equipo.estado)
     ).all()
@@ -506,7 +458,6 @@ def asignar_nfc(
     if not eq:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Equipo no encontrado")
 
-    # ¿tag ya en uso?
     conflict = db.exec(
         select(Equipo).where(func.lower(Equipo.nfc_tag) == tag, Equipo.id != equipo_id)
     ).first()
@@ -521,7 +472,6 @@ def asignar_nfc(
         return eq
     except IntegrityError:
         db.rollback()
-        # por si el UNIQUE funcional pilla una carrera
         raise HTTPException(status.HTTP_409_CONFLICT, "nfc_tag ya asignado")
 
 
@@ -543,5 +493,108 @@ def desasignar_nfc(
 
     eq.nfc_tag = None
     db.add(eq)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+# --- SECCIÓN NUEVA: ADJUNTOS EQUIPO (INVENTARIO) ---
+
+@router.post(
+    "/{equipo_id}/adjuntos",
+    dependencies=[Depends(require_role("MANTENIMIENTO", "ADMIN"))],
+    status_code=status.HTTP_201_CREATED
+)
+async def subir_adjunto_equipo(
+    equipo_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user=Depends(current_user),
+):
+    eq = db.get(Equipo, equipo_id)
+    if not eq:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Equipo no encontrado")
+        
+    file_data = await FileManager.save_file(file, "equipos", f"eq_{eq.id}")
+    
+    adjunto = EquipoAdjunto(
+        equipo_id=eq.id,
+        nombre_archivo=file_data["nombre_archivo"],
+        ruta_relativa=file_data["ruta_relativa"],
+        content_type=file_data["content_type"],
+        tamano_bytes=file_data["tamano_bytes"],
+        subido_por_id=int(user["id"]) if user else None
+    )
+    
+    db.add(adjunto)
+    db.commit()
+    db.refresh(adjunto)
+    return adjunto
+
+@router.get(
+    "/{equipo_id}/adjuntos",
+    dependencies=[Depends(current_user)]
+)
+def listar_adjuntos_equipo(
+    equipo_id: int,
+    db: Session = Depends(get_db),
+):
+    eq = db.get(Equipo, equipo_id)
+    if not eq:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Equipo no encontrado")
+        
+    adjuntos = db.exec(
+        select(EquipoAdjunto).where(EquipoAdjunto.equipo_id == equipo_id)
+    ).all()
+    
+    return [
+        {
+            "id": a.id,
+            "nombre_archivo": a.nombre_archivo,
+            "url": f"/api/v1/equipos/{equipo_id}/adjuntos/{a.id}",
+            "tipo": a.content_type,
+            "tamano": a.tamano_bytes
+        }
+        for a in adjuntos
+    ]
+
+@router.get(
+    "/{equipo_id}/adjuntos/{adjunto_id}",
+    response_class=FileResponse,
+    dependencies=[Depends(current_user)]
+)
+def descargar_adjunto_equipo(
+    equipo_id: int,
+    adjunto_id: int,
+    db: Session = Depends(get_db)
+):
+    adj = db.get(EquipoAdjunto, adjunto_id)
+    if not adj or adj.equipo_id != equipo_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Adjunto no encontrado")
+        
+    path = FileManager.get_path(adj.ruta_relativa)
+    if not path.is_file():
+         raise HTTPException(status.HTTP_404_NOT_FOUND, "Archivo físico no encontrado")
+         
+    return FileResponse(
+        path,
+        media_type=adj.content_type or "application/octet-stream",
+        filename=adj.nombre_archivo
+    )
+
+@router.delete(
+    "/{equipo_id}/adjuntos/{adjunto_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("MANTENIMIENTO", "ADMIN"))]
+)
+def eliminar_adjunto_equipo(
+    equipo_id: int,
+    adjunto_id: int,
+    db: Session = Depends(get_db)
+):
+    adj = db.get(EquipoAdjunto, adjunto_id)
+    if not adj or adj.equipo_id != equipo_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Adjunto no encontrado")
+        
+    FileManager.delete_file(adj.ruta_relativa)
+    db.delete(adj)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -1,14 +1,34 @@
-# tests/api/test_reparacion_facturas.py
-import io
+# backend/tests/api/test_reparacion_facturas.py
+import pytest
+from fastapi.testclient import TestClient
 from sqlmodel import Session
 
+from app.models.equipo import Equipo
+from app.models.incidencia import Incidencia
+from app.models.reparacion import Reparacion
+from app.core.file_manager import FileManager # <--- IMPORTANTE: Importamos el nuevo core
 from tests.utils import (
     create_user,
     create_random_equipo,
     get_auth_headers,
 )
 
-def _crear_reparacion_via_api(client, session: Session):
+# --- FIXTURE DE LIMPIEZA (LO NUEVO) ---
+@pytest.fixture(autouse=True)
+def clean_files(tmp_path):
+    """
+    Redirige el almacenamiento de archivos a una carpeta temporal
+    durante los tests para no ensuciar el disco real.
+    Se ejecuta automáticamente antes de cada test.
+    """
+    original_base = FileManager.BASE_DIR
+    FileManager.BASE_DIR = tmp_path
+    yield
+    FileManager.BASE_DIR = original_base
+
+
+# --- HELPER (RECUPERADO) ---
+def _crear_reparacion_via_api(client: TestClient, session: Session):
     """Crea equipo, incidencia y reparación vía API y devuelve (headers, rep_id)."""
     mant = create_user(session, role="MANTENIMIENTO")
     eq = create_random_equipo(session)
@@ -46,6 +66,8 @@ def _crear_reparacion_via_api(client, session: Session):
 
     return headers, rep_id
 
+
+# --- TUS TESTS ORIGINALES (CONSERVADOS) ---
 
 def test_subir_y_listar_facturas_reparacion(client, session):
     """
