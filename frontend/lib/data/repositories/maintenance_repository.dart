@@ -6,34 +6,57 @@ import '../models/reparacion_model.dart';
 class MaintenanceRepository {
   final MaintenanceRemoteDataSource _remoteDs;
 
-  MaintenanceRepository({required MaintenanceRemoteDataSource remoteDs}) 
+  MaintenanceRepository({required MaintenanceRemoteDataSource remoteDs})
       : _remoteDs = remoteDs;
 
   // --- INCIDENCIAS ---
-  Future<List<IncidenciaModel>> getIncidencias({int? equipoId, String? estado}) => 
-      _remoteDs.getIncidencias(equipoId: equipoId, estado: estado);
 
-  Future<void> reportarIncidencia(int equipoId, String titulo, String? descripcion) =>
-      _remoteDs.createIncidencia(equipoId, titulo, descripcion);
+  Future<List<IncidenciaModel>> getIncidencias({
+    int? equipoId,
+    String? estado,
+  }) =>
+      _remoteDs.getIncidencias(
+        equipoId: equipoId,
+        estado: estado,
+      );
 
+  Future<void> reportarIncidencia(
+          int equipoId, String titulo, String? descripcion) =>
+      _remoteDs.createIncidencia(
+        equipoId: equipoId,
+        titulo: titulo,
+        descripcion: descripcion,
+      );
+
+  /// Cambiar solo el estado de la incidencia (ABIERTA / EN_PROGRESO / CERRADA)
   Future<void> cambiarEstadoIncidencia(int id, String nuevoEstado) =>
-      _remoteDs.updateIncidenciaEstado(id, nuevoEstado);
+      _remoteDs.updateIncidencia(
+        id,
+        estado: nuevoEstado,
+      );
 
+  /// Actualizar solo la descripción de la incidencia
   Future<void> actualizarIncidencia(int id, {String? descripcion}) =>
-      _remoteDs.updateIncidencia(id, descripcion: descripcion);
+      _remoteDs.updateIncidencia(
+        id,
+        descripcion: descripcion,
+      );
+
+  // --- Adjuntos de incidencias ---
 
   Future<void> subirAdjuntoIncidencia(int incidenciaId, File file) =>
       _remoteDs.uploadAdjuntoIncidencia(incidenciaId, file);
 
-  Future<List<Map<String, String>>> listarAdjuntosIncidencia(int incidenciaId) =>
+  Future<List<Map<String, dynamic>>> listarAdjuntosIncidencia(
+          int incidenciaId) =>
       _remoteDs.getAdjuntosIncidenciaURLs(incidenciaId);
 
-  // NUEVO
-  Future<void> eliminarAdjuntoIncidencia(int incidenciaId, int adjuntoId) =>
+  Future<void> eliminarAdjuntoIncidencia(
+          int incidenciaId, int adjuntoId) =>
       _remoteDs.deleteAdjuntoIncidencia(incidenciaId, adjuntoId);
 
-
   // --- REPARACIONES ---
+
   Future<void> crearReparacion({
     required int equipoId,
     required int incidenciaId,
@@ -50,24 +73,35 @@ class MaintenanceRepository {
         costeMateriales: costeMateriales,
         costeManoObra: costeManoObra,
       );
-  
-  Future<List<ReparacionModel>> getReparaciones({int? equipoId}) => 
+
+  Future<List<ReparacionModel>> getReparaciones({int? equipoId}) =>
       _remoteDs.getReparaciones(equipoId: equipoId);
 
-  Future<void> actualizarReparacion(int id, {String? descripcion}) =>
-      _remoteDs.updateReparacion(id, descripcion: descripcion);
+  /// Ahora permite actualizar descripción y/o estado de la reparación
+  Future<void> actualizarReparacion(
+    int id, {
+    String? descripcion,
+    String? estado,
+  }) =>
+      _remoteDs.updateReparacion(
+        id,
+        descripcion: descripcion,
+        estado: estado,
+      );
 
-  Future<void> subirFactura(int reparacionId, File file) => 
+  // --- FACTURAS DE REPARACIÓN ---
+
+  Future<void> subirFactura(int reparacionId, File file) =>
       _remoteDs.subirFactura(reparacionId, file);
 
-  Future<List<Map<String, String>>> listarFacturas(int reparacionId) => 
+  Future<List<Map<String, dynamic>>> listarFacturas(int reparacionId) =>
       _remoteDs.getFacturasURLs(reparacionId);
 
-  // NUEVO
   Future<void> eliminarFactura(int reparacionId, int facturaId) =>
       _remoteDs.deleteFacturaReparacion(reparacionId, facturaId);
 
-  // Común
-  Future<File> descargarArchivo(String url, String fileName) => 
+  // --- COMÚN ---
+
+  Future<File> descargarArchivo(String url, String fileName) =>
       _remoteDs.downloadFile(url, fileName);
 }

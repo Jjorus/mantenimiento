@@ -102,7 +102,7 @@ class MaintenanceCubit extends Cubit<MaintenanceState> {
 
   // --- REPARACIONES ---
 
-  Future<void> crearReparacion({
+   Future<void> crearReparacion({
     required int equipoId,
     required int incidenciaId,
     required String titulo,
@@ -110,7 +110,11 @@ class MaintenanceCubit extends Cubit<MaintenanceState> {
     double? costeMateriales,
     double? costeManoObra,
   }) async {
-    emit(state.copyWith(status: MaintenanceStatus.loading, errorMessage: null, successMessage: null));
+    emit(state.copyWith(
+      status: MaintenanceStatus.loading,
+      errorMessage: null,
+      successMessage: null,
+    ));
     try {
       await _repository.crearReparacion(
         equipoId: equipoId,
@@ -120,33 +124,59 @@ class MaintenanceCubit extends Cubit<MaintenanceState> {
         costeMateriales: costeMateriales,
         costeManoObra: costeManoObra,
       );
-      
-      // 1. ÉXITO
-      emit(state.copyWith(status: MaintenanceStatus.success, successMessage: 'Reparación creada correctamente'));
-      
-      // 2. PAUSA
+
+      emit(state.copyWith(
+        status: MaintenanceStatus.success,
+        successMessage: 'Reparación creada correctamente',
+      ));
+
       await Future.delayed(const Duration(milliseconds: 300));
-
-      // 3. RECARGA AUTOMÁTICA
       loadDashboardData(filtroEstado: _filtroEstado);
-
     } on ApiException catch (e) {
-      emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: e.message));
+      emit(
+        state.copyWith(
+          status: MaintenanceStatus.failure,
+          errorMessage: e.message,
+        ),
+      );
     } catch (_) {
-      emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: 'Error al crear reparación'));
+      emit(
+        state.copyWith(
+          status: MaintenanceStatus.failure,
+          errorMessage: 'Error al crear reparación',
+        ),
+      );
     }
   }
 
-  Future<void> actualizarReparacion(int id, {String? descripcion}) async {
+  Future<void> actualizarReparacion(
+    int id, {
+    String? descripcion,
+    String? estado,
+  }) async {
     try {
-      await _repository.actualizarReparacion(id, descripcion: descripcion);
+      await _repository.actualizarReparacion(
+        id,
+        descripcion: descripcion,
+        estado: estado,
+      );
       emit(state.copyWith(successMessage: "Reparación actualizada"));
       await Future.delayed(const Duration(milliseconds: 300));
       loadDashboardData(filtroEstado: _filtroEstado);
     } on ApiException catch (e) {
-      emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: e.message));
+      emit(
+        state.copyWith(
+          status: MaintenanceStatus.failure,
+          errorMessage: e.message,
+        ),
+      );
     } catch (_) {
-      emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: 'Error actualizando reparación'));
+      emit(
+        state.copyWith(
+          status: MaintenanceStatus.failure,
+          errorMessage: 'Error actualizando reparación',
+        ),
+      );
     }
   }
   

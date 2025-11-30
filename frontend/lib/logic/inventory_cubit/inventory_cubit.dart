@@ -10,35 +10,47 @@ class InventoryCubit extends Cubit<InventoryState> {
   InventoryCubit(this._repository) : super(const InventoryState());
 
   Future<void> loadInventory({String? query}) async {
-    emit(state.copyWith(
-      status: InventoryStatus.loading, 
-      errorMessage: null
-    ));
-    
+    emit(
+      state.copyWith(
+        status: InventoryStatus.loading,
+        errorMessage: null,
+      ),
+    );
+
     try {
       final equipos = await _repository.buscarEquipos(query: query);
-      emit(state.copyWith(
-        status: InventoryStatus.success,
-        equipos: equipos,
-      ));
+      emit(
+        state.copyWith(
+          status: InventoryStatus.success,
+          equipos: equipos,
+        ),
+      );
     } on ApiException catch (e) {
-      emit(state.copyWith(
-        status: InventoryStatus.failure,
-        errorMessage: e.message,
-      ));
-    } catch (e) {
-      emit(state.copyWith(
-        status: InventoryStatus.failure,
-        errorMessage: "Error inesperado al cargar inventario",
-      ));
+      emit(
+        state.copyWith(
+          status: InventoryStatus.failure,
+          errorMessage: e.message,
+        ),
+      );
+    } catch (_) {
+      emit(
+        state.copyWith(
+          status: InventoryStatus.failure,
+          errorMessage: "Error inesperado al cargar inventario",
+        ),
+      );
     }
   }
 
-  // --- NUEVO: Crear Equipo ---
+  // Crear equipo
   Future<void> crearEquipo({
     required String identidad,
     String? numeroSerie,
     required String tipo,
+    String? nfcTag,
+    int? seccionId,
+    int? ubicacionId,
+    String? notas,
   }) async {
     emit(state.copyWith(status: InventoryStatus.loading));
     try {
@@ -46,31 +58,70 @@ class InventoryCubit extends Cubit<InventoryState> {
         identidad: identidad,
         numeroSerie: numeroSerie,
         tipo: tipo,
+        nfcTag: nfcTag,
+        seccionId: seccionId,
+        ubicacionId: ubicacionId,
+        notas: notas,
       );
-      // Recargamos el inventario para mostrar el nuevo equipo
       await loadInventory();
-    } catch (e) {
-      emit(state.copyWith(
-        status: InventoryStatus.failure,
-        errorMessage: "Error al crear el equipo",
-      ));
-      // Volvemos a cargar para restaurar la lista si falló
-      loadInventory(); 
+    } catch (_) {
+      emit(
+        state.copyWith(
+          status: InventoryStatus.failure,
+          errorMessage: "Error al crear el equipo",
+        ),
+      );
+      loadInventory();
+    }
+  }
+
+  // Actualizar equipo (edición ficha)
+  Future<void> actualizarEquipo({
+    required int id,
+    required String identidad,
+    String? numeroSerie,
+    required String tipo,
+    String? nfcTag,
+    int? seccionId,
+    int? ubicacionId,
+    String? notas,
+  }) async {
+    emit(state.copyWith(status: InventoryStatus.loading));
+    try {
+      await _repository.actualizarEquipo(
+        id: id,
+        identidad: identidad,
+        numeroSerie: numeroSerie,
+        tipo: tipo,
+        nfcTag: nfcTag,
+        seccionId: seccionId,
+        ubicacionId: ubicacionId,
+        notas: notas,
+      );
+      await loadInventory();
+    } catch (_) {
+      emit(
+        state.copyWith(
+          status: InventoryStatus.failure,
+          errorMessage: "Error al actualizar el equipo",
+        ),
+      );
+      await loadInventory();
     }
   }
 
   Future<void> subirAdjuntoEquipo(int equipoId, File file) async {
     try {
       await _repository.subirAdjuntoEquipo(equipoId, file);
-    } catch (e) {
-      // Manejar error silenciosamente o emitir estado temporal
+    } catch (_) {
+      // error silencioso
     }
   }
 
   Future<void> eliminarAdjuntoEquipo(int equipoId, int adjuntoId) async {
     try {
       await _repository.eliminarAdjunto(equipoId, adjuntoId);
-    } catch (e) {
+    } catch (_) {
       throw Exception("Error al eliminar adjunto");
     }
   }
@@ -78,8 +129,8 @@ class InventoryCubit extends Cubit<InventoryState> {
   Future<void> guardarNotas(int equipoId, String notas) async {
     try {
       await _repository.actualizarNotas(equipoId, notas);
-      loadInventory(); 
-    } catch (e) {
+      loadInventory();
+    } catch (_) {
       throw Exception("Error guardando notas");
     }
   }

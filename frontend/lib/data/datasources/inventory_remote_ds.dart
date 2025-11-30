@@ -28,23 +28,42 @@ class InventoryRemoteDataSource {
         .toList();
   }
 
-  // --- NUEVO: Crear Equipo ---
+  // Crear equipo
   Future<void> createEquipo(Map<String, dynamic> data) async {
     await _client.dio.post('/v1/equipos', data: data);
   }
 
-  // --- Actualizar equipo (para notas) ---
-  Future<void> updateEquipo(int id, {String? notas}) async {
+  // Actualizar equipo (ficha completa y/o notas)
+  Future<void> updateEquipo(
+    int id, {
+    String? identidad,
+    String? numeroSerie,
+    String? tipo,
+    String? estado,
+    String? nfcTag,
+    int? seccionId,
+    int? ubicacionId,
+    String? notas,
+  }) async {
+    final data = <String, dynamic>{};
+    if (identidad != null) data['identidad'] = identidad;
+    if (numeroSerie != null) data['numero_serie'] = numeroSerie;
+    if (tipo != null) data['tipo'] = tipo;
+    if (estado != null) data['estado'] = estado;
+    if (nfcTag != null) data['nfc_tag'] = nfcTag;
+    if (seccionId != null) data['seccion_id'] = seccionId;
+    if (ubicacionId != null) data['ubicacion_id'] = ubicacionId;
+    if (notas != null) data['notas'] = notas;
+
+    if (data.isEmpty) return;
+
     await _client.dio.patch(
       '/v1/equipos/$id',
-      data: {
-        if (notas != null) 'notas': notas,
-      }
+      data: data,
     );
   }
 
-  // --- Adjuntos ---
-
+  // Adjuntos
   Future<void> uploadAdjuntoEquipo(int equipoId, File file) async {
     final fileName = file.path.split('/').last;
     final formData = FormData.fromMap({
@@ -60,14 +79,15 @@ class InventoryRemoteDataSource {
       final nombre = e['nombre_archivo']?.toString() ?? 'archivo';
       return {
         'url': '/v1/equipos/$equipoId/adjuntos/$idAdjunto',
-        'fileName': nombre
+        'fileName': nombre,
       };
     }).toList();
   }
 
   Future<File> downloadFile(String url, String fileName) async {
     final tempDir = await getTemporaryDirectory();
-    final savePath = '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_$fileName';
+    final savePath =
+        '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_$fileName';
 
     await _client.dio.download(
       url,
@@ -78,7 +98,6 @@ class InventoryRemoteDataSource {
     return File(savePath);
   }
 
-  // Eliminar Adjunto
   Future<void> deleteAdjuntoEquipo(int equipoId, int adjuntoId) async {
     await _client.dio.delete('/v1/equipos/$equipoId/adjuntos/$adjuntoId');
   }

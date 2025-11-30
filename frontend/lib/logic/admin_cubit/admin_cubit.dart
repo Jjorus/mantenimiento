@@ -11,59 +11,85 @@ class AdminCubit extends Cubit<AdminState> {
     emit(state.copyWith(status: AdminStatus.loading));
     try {
       final users = await _repository.listarUsuarios();
-      emit(state.copyWith(status: AdminStatus.success, users: users));
+      emit(
+        state.copyWith(
+          status: AdminStatus.success,
+          users: users,
+          errorMessage: null,
+        ),
+      );
     } catch (e) {
-      emit(state.copyWith(status: AdminStatus.failure, errorMessage: "Error cargando usuarios: $e"));
+      emit(
+        state.copyWith(
+          status: AdminStatus.failure,
+          errorMessage: "Error cargando usuarios: $e",
+        ),
+      );
     }
   }
 
   Future<void> crearUsuario({
-    required String username, 
-    required String email, 
-    required String password, 
+    required String username,
+    required String email,
+    required String password,
     required String rol,
     String? nombre,
     String? apellidos,
+    int? ubicacionId,
   }) async {
-    emit(state.copyWith(status: AdminStatus.loading));
+    emit(state.copyWith(status: AdminStatus.loading, errorMessage: null));
     try {
       await _repository.crearUsuario(
-        username: username, 
+        username: username,
         email: email,
-        password: password, 
+        password: password,
         rol: rol,
         nombre: nombre,
-        apellidos: apellidos
+        apellidos: apellidos,
+        ubicacionId: ubicacionId,
       );
       emit(state.copyWith(successMessage: "Usuario creado correctamente"));
       loadUsers();
     } catch (e) {
-      emit(state.copyWith(status: AdminStatus.failure, errorMessage: "Error creando usuario"));
+      emit(
+        state.copyWith(
+          status: AdminStatus.failure,
+          errorMessage: "Error creando usuario",
+        ),
+      );
     }
   }
 
-  Future<void> actualizarUsuario(int id, {
-    String? email, 
-    String? rol, 
-    bool? activo, 
+  Future<void> actualizarUsuario(
+    int id, {
+    String? email,
+    String? rol,
+    bool? activo,
     String? password,
     String? nombre,
     String? apellidos,
+    int? ubicacionId,
   }) async {
     try {
       await _repository.actualizarUsuario(
-        id, 
-        email: email, 
-        rol: rol, 
-        activo: activo, 
+        id,
+        email: email,
+        rol: rol,
+        activo: activo,
         password: password,
         nombre: nombre,
-        apellidos: apellidos
+        apellidos: apellidos,
+        ubicacionId: ubicacionId,
       );
       emit(state.copyWith(successMessage: "Usuario actualizado"));
       loadUsers();
     } catch (e) {
-      emit(state.copyWith(status: AdminStatus.failure, errorMessage: "Error actualizando usuario"));
+      emit(
+        state.copyWith(
+          status: AdminStatus.failure,
+          errorMessage: "Error actualizando usuario",
+        ),
+      );
     }
   }
 
@@ -73,7 +99,12 @@ class AdminCubit extends Cubit<AdminState> {
       emit(state.copyWith(successMessage: "Usuario eliminado"));
       loadUsers();
     } catch (e) {
-      emit(state.copyWith(status: AdminStatus.failure, errorMessage: "Error eliminando usuario"));
+      emit(
+        state.copyWith(
+          status: AdminStatus.failure,
+          errorMessage: "Error eliminando usuario",
+        ),
+      );
     }
   }
 }

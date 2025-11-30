@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -11,86 +12,102 @@ class MaintenanceRemoteDataSource {
 
   MaintenanceRemoteDataSource(this._client);
 
-  // --- INCIDENCIAS ---
-  
+  // ---------------------------------------------------------------------------
+  // INCIDENCIAS
+  // ---------------------------------------------------------------------------
+
   Future<List<IncidenciaModel>> getIncidencias({
     int? equipoId,
     String? estado,
-    String? query,
   }) async {
     final response = await _client.dio.get(
       '/v1/incidencias',
       queryParameters: {
         if (equipoId != null) 'equipo_id': equipoId,
-        if (estado != null) 'estado': estado,
-        if (query != null) 'q': query,
+        if (estado != null && estado.isNotEmpty) 'estado': estado,
       },
     );
+
     return (response.data as List)
         .map((e) => IncidenciaModel.fromJson(e))
         .toList();
   }
 
-  Future<void> createIncidencia(int equipoId, String titulo, String? descripcion) async {
+  Future<void> createIncidencia({
+    required int equipoId,
+    required String titulo,
+    String? descripcion,
+  }) async {
     await _client.dio.post(
       '/v1/incidencias',
       data: {
         'equipo_id': equipoId,
         'titulo': titulo,
-        'descripcion': descripcion,
+        if (descripcion != null && descripcion.isNotEmpty)
+          'descripcion': descripcion,
       },
     );
   }
 
-  Future<void> updateIncidenciaEstado(int id, String nuevoEstado) async {
-    if (nuevoEstado == 'CERRADA') {
-      await _client.dio.post('/v1/incidencias/$id/cerrar');
-    } else {
-      await _client.dio.patch(
-        '/v1/incidencias/$id',
-        data: {'estado': nuevoEstado},
-      );
-    }
-  }
+  Future<void> updateIncidencia(
+    int id, {
+    String? descripcion,
+    String? estado,
+  }) async {
+    final data = <String, dynamic>{};
+    if (descripcion != null) data['descripcion'] = descripcion;
+    if (estado != null) data['estado'] = estado;
 
-  Future<void> updateIncidencia(int id, {String? descripcion}) async {
+    if (data.isEmpty) return;
+
     await _client.dio.patch(
       '/v1/incidencias/$id',
-      data: { if (descripcion != null) 'descripcion': descripcion },
+      data: data,
     );
   }
 
+  // --- Adjuntos de incidencias ------------------------------------------------
+
   Future<void> uploadAdjuntoIncidencia(int incidenciaId, File file) async {
-    final fileName = file.path.split('/').last;
+    final fileName = file.path.split(Platform.pathSeparator).last;
     final formData = FormData.fromMap({
-      'file': await MultipartFile.fromFile(file.path, filename: fileName),
+      'file': await MultipartFile.fromFile(
+        file.path,
+        filename: fileName,
+      ),
     });
-    await _client.dio.post('/v1/incidencias/$incidenciaId/adjuntos', data: formData);
+
+    await _client.dio.post(
+      '/v1/incidencias/$incidenciaId/adjuntos',
+      data: formData,
+    );
   }
 
-  Future<List<Map<String, String>>> getAdjuntosIncidenciaURLs(int incidenciaId) async {
-    final response = await _client.dio.get('/v1/incidencias/$incidenciaId/adjuntos');
-    return (response.data as List).map<Map<String, String>>((e) {
-      final idAdjunto = e['id'];
-      final nombre = e['nombre_archivo']?.toString() ?? 'archivo';
-      return {
-        'url': '/v1/incidencias/$incidenciaId/adjuntos/$idAdjunto',
-        'fileName': nombre
-      };
-    }).toList();
+  Future<List<Map<String, dynamic>>> getAdjuntosIncidenciaURLs(
+      int incidenciaId) async {
+    final response =
+        await _client.dio.get('/v1/incidencias/$incidenciaId/adjuntos');
+    return (response.data as List)
+        .map<Map<String, dynamic>>(
+            (e) => Map<String, dynamic>.from(e as Map))
+        .toList();
   }
 
-  // NUEVO: Eliminar adjunto incidencia
-  Future<void> deleteAdjuntoIncidencia(int incidenciaId, int adjuntoId) async {
-    await _client.dio.delete('/v1/incidencias/$incidenciaId/adjuntos/$adjuntoId');
+  Future<void> deleteAdjuntoIncidencia(
+      int incidenciaId, int adjuntoId) async {
+    await _client.dio
+        .delete('/v1/incidencias/$incidenciaId/adjuntos/$adjuntoId');
   }
 
-  // --- REPARACIONES ---
-  
+  // ---------------------------------------------------------------------------
+  // REPARACIONES
+  // ---------------------------------------------------------------------------
+
   Future<List<ReparacionModel>> getReparaciones({int? equipoId}) async {
-    final path = equipoId != null 
-        ? '/v1/reparaciones/equipo/$equipoId' 
+    final path = equipoId != null
+        ? '/v1/reparaciones/equipo/$equipoId'
         : '/v1/reparaciones';
+
     final response = await _client.dio.get(path);
     return (response.data as List)
         .map((e) => ReparacionModel.fromJson(e))
@@ -111,51 +128,74 @@ class MaintenanceRemoteDataSource {
         'equipo_id': equipoId,
         'incidencia_id': incidenciaId,
         'titulo': titulo,
-        'descripcion': descripcion,
-        'coste_materiales': costeMateriales,
-        'coste_mano_obra': costeManoObra,
-        'estado': 'ABIERTA',
+        if (descripcion != null && descripcion.isNotEmpty)
+          'descripcion': descripcion,
+        if (costeMateriales != null) 'coste_materiales': costeMateriales,
+        if (costeManoObra != null) 'coste_mano_obra': costeManoObra,
       },
     );
   }
 
-  Future<void> updateReparacion(int id, {String? descripcion}) async {
+  Future<void> updateReparacion(
+    int id, {
+    String? descripcion,
+    String? estado,
+  }) async {
+    final data = <String, dynamic>{};
+    if (descripcion != null) data['descripcion'] = descripcion;
+    if (estado != null) data['estado'] = estado;
+
+    if (data.isEmpty) return;
+
     await _client.dio.patch(
       '/v1/reparaciones/$id',
-      data: { if (descripcion != null) 'descripcion': descripcion },
+      data: data,
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // FACTURAS REPARACIÓN
+  // ---------------------------------------------------------------------------
+
   Future<void> subirFactura(int reparacionId, File file) async {
-    final fileName = file.path.split('/').last; 
+    final fileName = file.path.split(Platform.pathSeparator).last;
     final formData = FormData.fromMap({
-      'file': await MultipartFile.fromFile(file.path, filename: fileName),
+      'file': await MultipartFile.fromFile(
+        file.path,
+        filename: fileName,
+      ),
     });
-    await _client.dio.post('/v1/reparaciones/$reparacionId/factura', data: formData);
+
+    await _client.dio.post(
+      '/v1/reparaciones/$reparacionId/facturas',
+      data: formData,
+    );
   }
 
-  Future<List<Map<String, String>>> getFacturasURLs(int reparacionId) async {
-    final response = await _client.dio.get('/v1/reparaciones/$reparacionId/facturas');
-    return (response.data as List).map<Map<String, String>>((e) {
-      final idFactura = e['id'];
-      final nombre = e['nombre_archivo']?.toString() ?? 'archivo';
-      return {
-        'url': '/v1/reparaciones/$reparacionId/facturas/$idFactura',
-        'fileName': nombre
-      };
-    }).toList();
+  Future<List<Map<String, dynamic>>> getFacturasURLs(
+      int reparacionId) async {
+    final response = await _client.dio
+        .get('/v1/reparaciones/$reparacionId/facturas');
+    return (response.data as List)
+        .map<Map<String, dynamic>>(
+            (e) => Map<String, dynamic>.from(e as Map))
+        .toList();
   }
 
-  // NUEVO: Eliminar factura
-  Future<void> deleteFacturaReparacion(int reparacionId, int facturaId) async {
-    await _client.dio.delete('/v1/reparaciones/$reparacionId/facturas/$facturaId');
+  Future<void> deleteFacturaReparacion(
+      int reparacionId, int facturaId) async {
+    await _client.dio
+        .delete('/v1/reparaciones/$reparacionId/facturas/$facturaId');
   }
 
-  // --- COMÚN ---
+  // ---------------------------------------------------------------------------
+  // DESCARGAS COMUNES
+  // ---------------------------------------------------------------------------
 
   Future<File> downloadFile(String url, String fileName) async {
     final tempDir = await getTemporaryDirectory();
-    final savePath = '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_$fileName';
+    final savePath =
+        '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_$fileName';
 
     await _client.dio.download(
       url,
