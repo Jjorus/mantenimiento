@@ -37,9 +37,9 @@ const List<MenuItem> appMenuItems = [
     allowedRoles: ['ADMIN', 'MANTENIMIENTO'],
   ),
   MenuItem(
-    route: '/users',
-    label: 'Usuarios',
-    icon: Icons.people_outline,
+    route: '/admin',
+    label: 'Administración',
+    icon: Icons.admin_panel_settings,
     allowedRoles: ['ADMIN'],
   ),
 ];

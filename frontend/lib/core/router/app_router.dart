@@ -14,6 +14,7 @@ import '../../presentation/features/inventory/screens/equipo_detail_screen.dart'
 import '../../presentation/features/maintenance/screens/maintenance_screen.dart';
 import '../../presentation/features/maintenance/screens/incident_form_screen.dart';
 import '../../presentation/features/maintenance/screens/repair_form_screen.dart'; // Importar formulario reparación
+import '../../presentation/features/admin/screens/admin_screen.dart';
 
 // LAYOUTS
 import '../../presentation/shared/layouts/responsive_layout.dart';
@@ -74,6 +75,13 @@ class AppRouter {
               path: '/maintenance',
               builder: (context, state) => const MaintenanceScreen(),
             ),
+            GoRoute(
+              path: '/admin', // Cambiado de /users
+              pageBuilder: (context, state) => const NoTransitionPage(
+                child: AdminScreen(), // Cambiado de UsersScreen
+              ),
+            ),
+            
             GoRoute(
               path: '/users',
               builder: (context, state) => const Scaffold(

@@ -28,7 +28,12 @@ class InventoryRemoteDataSource {
         .toList();
   }
 
-  // --- NUEVO: Actualizar equipo (para notas) ---
+  // --- NUEVO: Crear Equipo ---
+  Future<void> createEquipo(Map<String, dynamic> data) async {
+    await _client.dio.post('/v1/equipos', data: data);
+  }
+
+  // --- Actualizar equipo (para notas) ---
   Future<void> updateEquipo(int id, {String? notas}) async {
     await _client.dio.patch(
       '/v1/equipos/$id',
@@ -73,7 +78,7 @@ class InventoryRemoteDataSource {
     return File(savePath);
   }
 
-  // NUEVO: Eliminar
+  // Eliminar Adjunto
   Future<void> deleteAdjuntoEquipo(int equipoId, int adjuntoId) async {
     await _client.dio.delete('/v1/equipos/$equipoId/adjuntos/$adjuntoId');
   }

@@ -1,4 +1,4 @@
-# app/models/usuario.py
+# backend/app/models/usuario.py
 from typing import Optional, TYPE_CHECKING
 from datetime import datetime, timezone
 
@@ -65,11 +65,16 @@ class Usuario(SQLModel, table=True):
         description="Email del usuario (opcional, único si existe)",
     )
 
-    # nombre visible para UI (no único)
-    display_name: Optional[str] = Field(
+    # --- NUEVOS CAMPOS (Sustituyen a display_name) ---
+    nombre: Optional[str] = Field(
         default=None,
-        sa_column=Column(String(120), nullable=True),
-        description="Nombre para mostrar",
+        sa_column=Column(String(100), nullable=True),
+        description="Nombre de pila",
+    )
+    apellidos: Optional[str] = Field(
+        default=None,
+        sa_column=Column(String(150), nullable=True),
+        description="Apellidos",
     )
 
     # --- Seguridad / Estado ---
@@ -155,7 +160,8 @@ class Usuario(SQLModel, table=True):
             "id": self.id,
             "username": self.username,
             "email": self.email,
-            "display_name": self.display_name,
+            "nombre": self.nombre,       # Actualizado
+            "apellidos": self.apellidos, # Actualizado
             "role": self.role,
             "active": self.active,
             "mfa_enabled": self.mfa_enabled,

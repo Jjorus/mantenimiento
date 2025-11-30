@@ -9,6 +9,10 @@ class UserModel {
   final String email;
   final String role; // 'ADMIN', 'MANTENIMIENTO', 'OPERARIO'
   final bool active;
+  
+  // --- NUEVOS CAMPOS ---
+  final String? nombre;
+  final String? apellidos;
 
   const UserModel({
     required this.id,
@@ -16,14 +20,22 @@ class UserModel {
     required this.email,
     required this.role,
     required this.active,
+    this.nombre,
+    this.apellidos,
   });
 
-  // Generación automática de JSON
   factory UserModel.fromJson(Map<String, dynamic> json) => _$UserModelFromJson(json);
   Map<String, dynamic> toJson() => _$UserModelToJson(this);
 
-  // Helpers de Roles (muy útiles para la UI)
   bool get isAdmin => role == 'ADMIN';
   bool get isMaintenance => role == 'MANTENIMIENTO';
   bool get isTechnician => role == 'OPERARIO';
+  
+  // Helper útil para mostrar el nombre completo en la UI
+  String get fullName {
+    final n = nombre ?? '';
+    final a = apellidos ?? '';
+    if (n.isEmpty && a.isEmpty) return username;
+    return "$n $a".trim();
+  }
 }

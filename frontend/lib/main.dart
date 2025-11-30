@@ -9,21 +9,24 @@ import 'core/router/app_router.dart';
 
 // Data Sources
 import 'data/datasources/auth_remote_ds.dart';
-import 'data/datasources/inventory_remote_ds.dart'; // NUEVO
-import 'data/datasources/movement_remote_ds.dart';  // NUEVO
+import 'data/datasources/inventory_remote_ds.dart';
+import 'data/datasources/movement_remote_ds.dart';
 import 'data/datasources/maintenance_remote_ds.dart';
+import 'data/datasources/admin_remote_ds.dart'; // NUEVO
 
 // Repositories
 import 'data/repositories/auth_repository.dart';
-import 'data/repositories/inventory_repository.dart'; // NUEVO
-import 'data/repositories/movement_repository.dart';  // NUEVO
+import 'data/repositories/inventory_repository.dart';
+import 'data/repositories/movement_repository.dart';
 import 'data/repositories/maintenance_repository.dart';
+import 'data/repositories/admin_repository.dart'; // NUEVO
 
 // Logic
 import 'logic/auth_cubit/auth_cubit.dart';
-import 'logic/movement_cubit/movement_cubit.dart';    // NUEVO
+import 'logic/movement_cubit/movement_cubit.dart';
 import 'logic/inventory_cubit/inventory_cubit.dart';
 import 'logic/maintenance_cubit/maintenance_cubit.dart';
+import 'logic/admin_cubit/admin_cubit.dart'; // NUEVO
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,6 +40,7 @@ void main() {
   final invRemoteDs = InventoryRemoteDataSource(dioClient);
   final movRemoteDs = MovementRemoteDataSource(dioClient);
   final maintRemoteDs = MaintenanceRemoteDataSource(dioClient);
+  final adminRemoteDs = AdminRemoteDataSource(dioClient); // NUEVO
 
   // 3. Repositorios
   final authRepository = AuthRepository(
@@ -46,12 +50,14 @@ void main() {
   final inventoryRepository = InventoryRepository(remoteDs: invRemoteDs);
   final movementRepository = MovementRepository(remoteDs: movRemoteDs);
   final maintenanceRepository = MaintenanceRepository(remoteDs: maintRemoteDs);
+  final adminRepository = AdminRepository(remoteDs: adminRemoteDs); // NUEVO
 
   runApp(MyApp(
     authRepository: authRepository,
     inventoryRepository: inventoryRepository,
     movementRepository: movementRepository,
     maintenanceRepository: maintenanceRepository,
+    adminRepository: adminRepository, // NUEVO
   ));
 }
 
@@ -60,6 +66,7 @@ class MyApp extends StatelessWidget {
   final InventoryRepository inventoryRepository;
   final MovementRepository movementRepository;
   final MaintenanceRepository maintenanceRepository;
+  final AdminRepository adminRepository; // NUEVO
 
   const MyApp({
     super.key, 
@@ -67,6 +74,7 @@ class MyApp extends StatelessWidget {
     required this.inventoryRepository,
     required this.movementRepository,
     required this.maintenanceRepository,
+    required this.adminRepository, // NUEVO
   });
 
   @override
@@ -77,29 +85,36 @@ class MyApp extends StatelessWidget {
         RepositoryProvider.value(value: inventoryRepository),
         RepositoryProvider.value(value: movementRepository),
         RepositoryProvider.value(value: maintenanceRepository),
+        RepositoryProvider.value(value: adminRepository), // NUEVO
       ],
       child: MultiBlocProvider(
         providers: [
+          // Auth Global
           BlocProvider<AuthCubit>(
             create: (context) => AuthCubit(context.read<AuthRepository>()),
           ),
-          //Cubit global para movimientos (accesible desde cualquier ruta)
+          // Movimientos Global
           BlocProvider<MovementCubit>(
             create: (context) => MovementCubit(context.read<MovementRepository>()),
           ),
-          //logica de inventario y gestion de equipos
+          // Inventario Global
           BlocProvider<InventoryCubit>(
             create: (context) => InventoryCubit(
               context.read<InventoryRepository>(), 
             ),
           ),
-          //logica de mantenimiento e incidencias
+          // Mantenimiento Global
           BlocProvider<MaintenanceCubit>(
             create: (context) => MaintenanceCubit(context.read<MaintenanceRepository>()),
+          ),
+          // Admin Global (Para gestión de usuarios y paneles admin)
+          BlocProvider<AdminCubit>(
+            create: (context) => AdminCubit(context.read<AdminRepository>()),
           ),
         ],
         child: Builder(
           builder: (context) {
+            // Le pasamos el AuthCubit al router para la redirección (login/logout)
             final router = AppRouter.router(context.read<AuthCubit>());
 
             return MaterialApp.router(

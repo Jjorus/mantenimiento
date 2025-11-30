@@ -12,7 +12,24 @@ class InventoryRepository {
   Future<List<EquipoModel>> buscarEquipos({String? query}) => 
       _remoteDs.getEquipos(query: query);
 
-  // NUEVO: Notas
+  // --- NUEVO: Crear Equipo ---
+  Future<void> crearEquipo({
+    required String identidad,
+    String? numeroSerie,
+    required String tipo,
+    String estado = 'OPERATIVO',
+    String? notas,
+  }) {
+    final data = {
+      'identidad': identidad,
+      'numero_serie': numeroSerie,
+      'tipo': tipo,
+      'estado': estado,
+      'notas': notas,
+    };
+    return _remoteDs.createEquipo(data);
+  }
+
   Future<void> actualizarNotas(int id, String notas) =>
       _remoteDs.updateEquipo(id, notas: notas);
 
@@ -26,7 +43,6 @@ class InventoryRepository {
   Future<File> descargarArchivo(String url, String fileName) =>
       _remoteDs.downloadFile(url, fileName);
 
-  // NUEVO: Borrar
   Future<void> eliminarAdjunto(int equipoId, int adjuntoId) =>
       _remoteDs.deleteAdjuntoEquipo(equipoId, adjuntoId);
 }

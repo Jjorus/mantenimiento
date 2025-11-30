@@ -1,5 +1,5 @@
 # backend/app/api/v1/routes_usuarios.py
-from typing import Optional, List, Literal, get_args
+from typing import Optional, List, Literal
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
 from pydantic import BaseModel, Field, EmailStr
 from sqlmodel import Session, select
@@ -24,6 +24,10 @@ class UsuarioOut(BaseModel):
     email: EmailStr
     role: RoleLiteral
     active: bool
+    # Nuevos campos opcionales en la salida
+    nombre: Optional[str] = None
+    apellidos: Optional[str] = None
+
     class Config:
         from_attributes = True
 
@@ -34,12 +38,18 @@ class UsuarioCreateIn(BaseModel):
     password: str = Field(..., min_length=6)
     role: RoleLiteral = "OPERARIO"
     active: bool = True
+    # Nuevos campos opcionales al crear
+    nombre: Optional[str] = None
+    apellidos: Optional[str] = None
 
 
 class UsuarioUpdateIn(BaseModel):
     email: Optional[EmailStr] = None
     role: Optional[RoleLiteral] = None
     active: Optional[bool] = None
+    # Nuevos campos opcionales al editar
+    nombre: Optional[str] = None
+    apellidos: Optional[str] = None
 
 
 class PasswordChangeIn(BaseModel):
@@ -54,7 +64,7 @@ def _last_admin_guard(db: Session, exclude_user_id: Optional[int] = None) -> boo
     True si EXISTE al menos un ADMIN diferente de exclude_user_id.
     Úsalo antes de desactivar, bajar de rol o borrar a un admin.
     """
-    stmt = select(func.count()).select_from(Usuario).where(Usuario.role == "ADMIN", Usuario.active == True)  # noqa: E712
+    stmt = select(func.count()).select_from(Usuario).where(Usuario.role == "ADMIN", Usuario.active == True)
     if exclude_user_id is not None:
         stmt = stmt.where(Usuario.id != exclude_user_id)
     count = db.exec(stmt).one()
@@ -75,7 +85,7 @@ def me(user=Depends(current_user), db: Session = Depends(get_db)):
 @router.patch("/me", response_model=UsuarioOut, response_model_exclude_none=True, dependencies=[Depends(current_user)])
 def update_me(payload: UsuarioUpdateIn, user=Depends(current_user), db: Session = Depends(get_db)):
     """
-    Permite cambiar SOLO el email del propio usuario.
+    Permite al usuario cambiar sus propios datos (email, nombre, apellidos).
     (No permite role ni active aquí).
     """
     u = db.get(Usuario, int(user["id"]))
@@ -87,6 +97,12 @@ def update_me(payload: UsuarioUpdateIn, user=Depends(current_user), db: Session 
 
     if payload.email is not None:
         u.email = str(payload.email).strip()
+    
+    # Permitir al usuario actualizar su nombre/apellidos
+    if payload.nombre is not None:
+        u.nombre = payload.nombre.strip()
+    if payload.apellidos is not None:
+        u.apellidos = payload.apellidos.strip()
 
     try:
         db.add(u)
@@ -129,6 +145,9 @@ def create_user(payload: UsuarioCreateIn, db: Session = Depends(get_db)):
         password_hash=hash_password(payload.password),
         role=payload.role,
         active=payload.active,
+        # Nuevos campos
+        nombre=payload.nombre.strip() if payload.nombre else None,
+        apellidos=payload.apellidos.strip() if payload.apellidos else None,
     )
     try:
         db.add(u)
@@ -154,7 +173,7 @@ def list_users(
     db: Session = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    q: Optional[str] = Query(None, description="Busca en username/email (contiene)"),
+    q: Optional[str] = Query(None, description="Busca en username, email, nombre o apellidos (contiene)"),
     role: Optional[RoleLiteral] = Query(None),
     active: Optional[bool] = Query(None),
 ):
@@ -164,7 +183,13 @@ def list_users(
     conds = []
     if q:
         like = f"%{q.strip()}%"
-        conds.append(Usuario.username.ilike(like) | Usuario.email.ilike(like))
+        # Búsqueda ampliada a nombre y apellidos
+        conds.append(
+            Usuario.username.ilike(like) | 
+            Usuario.email.ilike(like) | 
+            Usuario.nombre.ilike(like) | 
+            Usuario.apellidos.ilike(like)
+        )
     if role:
         conds.append(Usuario.role == role)
     if active is not None:
@@ -221,6 +246,12 @@ def update_user(user_id: int, payload: UsuarioUpdateIn, db: Session = Depends(ge
         u.role = payload.role
     if payload.active is not None:
         u.active = payload.active
+    
+    # Actualizar campos nuevos
+    if payload.nombre is not None:
+        u.nombre = payload.nombre.strip()
+    if payload.apellidos is not None:
+        u.apellidos = payload.apellidos.strip()
 
     try:
         db.add(u)

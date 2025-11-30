@@ -34,15 +34,39 @@ class InventoryCubit extends Cubit<InventoryState> {
     }
   }
 
+  // --- NUEVO: Crear Equipo ---
+  Future<void> crearEquipo({
+    required String identidad,
+    String? numeroSerie,
+    required String tipo,
+  }) async {
+    emit(state.copyWith(status: InventoryStatus.loading));
+    try {
+      await _repository.crearEquipo(
+        identidad: identidad,
+        numeroSerie: numeroSerie,
+        tipo: tipo,
+      );
+      // Recargamos el inventario para mostrar el nuevo equipo
+      await loadInventory();
+    } catch (e) {
+      emit(state.copyWith(
+        status: InventoryStatus.failure,
+        errorMessage: "Error al crear el equipo",
+      ));
+      // Volvemos a cargar para restaurar la lista si falló
+      loadInventory(); 
+    }
+  }
+
   Future<void> subirAdjuntoEquipo(int equipoId, File file) async {
     try {
       await _repository.subirAdjuntoEquipo(equipoId, file);
     } catch (e) {
-      // Manejar error
+      // Manejar error silenciosamente o emitir estado temporal
     }
   }
 
-  // NUEVO
   Future<void> eliminarAdjuntoEquipo(int equipoId, int adjuntoId) async {
     try {
       await _repository.eliminarAdjunto(equipoId, adjuntoId);
@@ -51,11 +75,9 @@ class InventoryCubit extends Cubit<InventoryState> {
     }
   }
 
-  // NUEVO: Notas
   Future<void> guardarNotas(int equipoId, String notas) async {
     try {
       await _repository.actualizarNotas(equipoId, notas);
-      // Recargar para que el grid tenga el dato actualizado
       loadInventory(); 
     } catch (e) {
       throw Exception("Error guardando notas");

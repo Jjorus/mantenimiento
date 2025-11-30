@@ -39,6 +39,7 @@ class MaintenanceCubit extends Cubit<MaintenanceState> {
   Future<void> cambiarEstadoIncidencia(int id, String nuevoEstado) async {
     try {
       await _repository.cambiarEstadoIncidencia(id, nuevoEstado);
+      // Aquí no hace falta wait porque no suele cerrar pantalla, solo actualiza lista
       emit(state.copyWith(successMessage: "Incidencia actualizada a $nuevoEstado"));
       loadDashboardData(filtroEstado: _filtroEstado);
     } on ApiException catch (e) {
@@ -52,8 +53,19 @@ class MaintenanceCubit extends Cubit<MaintenanceState> {
     emit(state.copyWith(status: MaintenanceStatus.loading, errorMessage: null, successMessage: null));
     try {
       await _repository.reportarIncidencia(equipoId, titulo, descripcion);
-      emit(state.copyWith(status: MaintenanceStatus.success, successMessage: 'Incidencia creada correctamente'));
+      
+      // 1. Emitimos ÉXITO para que la UI reaccione (cierre ventana, muestre snackbar)
+      emit(state.copyWith(
+        status: MaintenanceStatus.success, 
+        successMessage: 'Incidencia creada correctamente'
+      ));
+
+      // 2. PAUSA TÁCTICA: Damos 300ms a la UI para procesar el cierre antes de recargar
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // 3. Recargamos datos automáticamente
       loadDashboardData(filtroEstado: _filtroEstado);
+      
     } on ApiException catch (e) {
       emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: e.message));
     } catch (_) {
@@ -65,6 +77,8 @@ class MaintenanceCubit extends Cubit<MaintenanceState> {
     try {
       await _repository.actualizarIncidencia(id, descripcion: descripcion);
       emit(state.copyWith(successMessage: "Incidencia actualizada"));
+      // También aplicamos wait aquí por seguridad si se cierra el diálogo
+      await Future.delayed(const Duration(milliseconds: 300));
       loadDashboardData(filtroEstado: _filtroEstado);
     } on ApiException catch (e) {
       emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: e.message));
@@ -82,16 +96,6 @@ class MaintenanceCubit extends Cubit<MaintenanceState> {
       emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: e.message));
     } catch (_) {
       emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: 'Error subiendo archivo'));
-    }
-  }
-
-  // NUEVO: Eliminar
-  Future<void> eliminarAdjuntoIncidencia(int incidenciaId, int adjuntoId) async {
-    try {
-      await _repository.eliminarAdjuntoIncidencia(incidenciaId, adjuntoId);
-      emit(state.copyWith(successMessage: "Adjunto eliminado"));
-    } catch (e) {
-      emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: 'Error eliminando adjunto'));
     }
   }
 
@@ -116,8 +120,16 @@ class MaintenanceCubit extends Cubit<MaintenanceState> {
         costeMateriales: costeMateriales,
         costeManoObra: costeManoObra,
       );
+      
+      // 1. ÉXITO
       emit(state.copyWith(status: MaintenanceStatus.success, successMessage: 'Reparación creada correctamente'));
+      
+      // 2. PAUSA
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // 3. RECARGA AUTOMÁTICA
       loadDashboardData(filtroEstado: _filtroEstado);
+
     } on ApiException catch (e) {
       emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: e.message));
     } catch (_) {
@@ -129,6 +141,7 @@ class MaintenanceCubit extends Cubit<MaintenanceState> {
     try {
       await _repository.actualizarReparacion(id, descripcion: descripcion);
       emit(state.copyWith(successMessage: "Reparación actualizada"));
+      await Future.delayed(const Duration(milliseconds: 300));
       loadDashboardData(filtroEstado: _filtroEstado);
     } on ApiException catch (e) {
       emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: e.message));
@@ -149,7 +162,16 @@ class MaintenanceCubit extends Cubit<MaintenanceState> {
     }
   }
 
-  // NUEVO: Eliminar
+  // Eliminar adjunto/factura (métodos auxiliares añadidos previamente)
+  Future<void> eliminarAdjuntoIncidencia(int incidenciaId, int adjuntoId) async {
+    try {
+      await _repository.eliminarAdjuntoIncidencia(incidenciaId, adjuntoId);
+      emit(state.copyWith(successMessage: "Adjunto eliminado"));
+    } catch (e) {
+      emit(state.copyWith(status: MaintenanceStatus.failure, errorMessage: 'Error eliminando adjunto'));
+    }
+  }
+
   Future<void> eliminarFactura(int reparacionId, int facturaId) async {
     try {
       await _repository.eliminarFactura(reparacionId, facturaId);
