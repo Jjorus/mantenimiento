@@ -150,6 +150,17 @@ class Usuario(SQLModel, table=True):
         sa_relationship_kwargs={"uselist": False},
     )
 
+    @property
+    def ubicacion_id(self) -> Optional[int]:
+        """
+        Devuelve el id de la ubicación asociada, si existe.
+
+        Se expone en los esquemas de respuesta (UsuarioOut) gracias a
+        model_config / from_attributes.
+        """
+        return self.ubicacion_asociada.id if self.ubicacion_asociada else None
+
+
     # --- Utilidades (no guardan estado) ---
     def __repr__(self) -> str:
         return f"<Usuario {self.id} {self.username} role={self.role} active={self.active}>"

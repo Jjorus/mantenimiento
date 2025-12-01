@@ -111,24 +111,64 @@ def crear_reparacion(
 ):
     errors: List[Dict[str, Any]] = []
 
+    # 1) Validar equipo
     equipo = db.get(Equipo, payload.equipo_id)
     if not equipo:
-        errors.append({"loc": ["body", "equipo_id"], "msg": "Equipo inexistente", "type": "value_error.foreign_key"})
+        errors.append(
+            {
+                "loc": ["body", "equipo_id"],
+                "msg": "Equipo inexistente",
+                "type": "value_error.foreign_key",
+            }
+        )
 
+    # 2) Validar incidencia
     from app.models.incidencia import Incidencia
+
     incidencia = db.get(Incidencia, payload.incidencia_id)
     if not incidencia:
-        errors.append({"loc": ["body", "incidencia_id"], "msg": "Incidencia inexistente", "type": "value_error.foreign_key"})
+        errors.append(
+            {
+                "loc": ["body", "incidencia_id"],
+                "msg": "Incidencia inexistente",
+                "type": "value_error.foreign_key",
+            }
+        )
     elif incidencia.equipo_id != payload.equipo_id:
-        errors.append({"loc": ["body", "incidencia_id"], "msg": "La incidencia no pertenece a ese equipo", "type": "value_error"})
+        errors.append(
+            {
+                "loc": ["body", "incidencia_id"],
+                "msg": "La incidencia no pertenece a ese equipo",
+                "type": "value_error",
+            }
+        )
 
+    # 3) Validar estado inicial de la reparación
     estado = payload.estado or "ABIERTA"
     if estado not in {"ABIERTA", "EN_PROGRESO"}:
-        errors.append({"loc": ["body", "estado"], "msg": "Estado inicial inválido", "type": "value_error"})
+        errors.append(
+            {
+                "loc": ["body", "estado"],
+                "msg": "Estado inicial inválido",
+                "type": "value_error",
+            }
+        )
 
     if errors:
         _raise_422(errors)
 
+    # 4) Reglas de negocio:
+    #    - El equipo pasa a MANTENIMIENTO.
+    #    - La incidencia pasa a EN_PROGRESO si estaba ABIERTA.
+    if equipo is not None and equipo.estado != "MANTENIMIENTO":
+        equipo.estado = "MANTENIMIENTO"
+        db.add(equipo)
+
+    if incidencia is not None and incidencia.estado == "ABIERTA":
+        incidencia.estado = "EN_PROGRESO"
+        db.add(incidencia)
+
+    # 5) Crear reparación
     rep = Reparacion(
         equipo_id=payload.equipo_id,
         incidencia_id=payload.incidencia_id,
@@ -150,15 +190,22 @@ def crear_reparacion(
         db.refresh(rep)
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "Conflicto de integridad (FK/índices)")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Conflicto de integridad (FK/índices)",
+        )
     except DBAPIError:
         db.rollback()
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Error interno de base de datos")
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Error interno de base de datos",
+        )
 
     base_url = str(request.base_url).rstrip("/")
     response.headers["Location"] = f"{base_url}/api/v1/reparaciones/{rep.id}"
     response.headers["Cache-Control"] = "no-store"
     return rep
+
 
 @router.get("", response_model=list[Reparacion], response_model_exclude_none=True, dependencies=[Depends(require_role("MANTENIMIENTO", "ADMIN"))])
 def listar_reparaciones(

@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError, DBAPIError
 from app.core.deps import get_db, current_user, require_role
 from app.core.security import hash_password
 from app.models.usuario import Usuario
+from app.models.ubicacion import Ubicacion
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
 
@@ -24,9 +25,10 @@ class UsuarioOut(BaseModel):
     email: EmailStr
     role: RoleLiteral
     active: bool
-    # Nuevos campos opcionales en la salida
+    # Campos adicionales
     nombre: Optional[str] = None
     apellidos: Optional[str] = None
+    ubicacion_id: Optional[int] = None  # NUEVO
 
     class Config:
         from_attributes = True
@@ -41,6 +43,12 @@ class UsuarioCreateIn(BaseModel):
     # Nuevos campos opcionales al crear
     nombre: Optional[str] = None
     apellidos: Optional[str] = None
+    # Ubicación opcional asociada al usuario
+    ubicacion_id: Optional[int] = Field(
+        None,
+        gt=0,
+        description="Ubicación asociada al usuario (sólo tipo 'TECNICO')",
+    )
 
 
 class UsuarioUpdateIn(BaseModel):
@@ -50,6 +58,12 @@ class UsuarioUpdateIn(BaseModel):
     # Nuevos campos opcionales al editar
     nombre: Optional[str] = None
     apellidos: Optional[str] = None
+    # Permitir cambiar la ubicación desde administración
+    ubicacion_id: Optional[int] = Field(
+        None,
+        gt=0,
+        description="Nueva ubicación asociada al usuario (técnico)",
+    )
 
 
 class PasswordChangeIn(BaseModel):
@@ -139,6 +153,26 @@ def change_my_password(payload: PasswordChangeIn, user=Depends(current_user), db
     dependencies=[Depends(require_role("ADMIN"))],
 )
 def create_user(payload: UsuarioCreateIn, db: Session = Depends(get_db)):
+    # Validación previa de la ubicación (si viene)
+    ubicacion_obj: Optional[Ubicacion] = None
+    if payload.ubicacion_id is not None:
+        ubicacion_obj = db.get(Ubicacion, payload.ubicacion_id)
+        if not ubicacion_obj:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Ubicación inexistente",
+            )
+        if ubicacion_obj.tipo != "TECNICO":
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Sólo se pueden asociar ubicaciones de tipo 'TECNICO' a usuarios",
+            )
+        if ubicacion_obj.usuario_id is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "La ubicación ya está asociada a otro usuario",
+            )
+
     u = Usuario(
         username=payload.username.strip(),
         email=str(payload.email).strip(),
@@ -149,17 +183,41 @@ def create_user(payload: UsuarioCreateIn, db: Session = Depends(get_db)):
         nombre=payload.nombre.strip() if payload.nombre else None,
         apellidos=payload.apellidos.strip() if payload.apellidos else None,
     )
+
+    # 1ª transacción: crear usuario
     try:
         db.add(u)
         db.commit()
         db.refresh(u)
-        return u
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "Usuario o email ya existen")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Username o email ya en uso",
+        )
     except DBAPIError:
         db.rollback()
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Error interno de base de datos")
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Error interno de base de datos",
+        )
+
+    # 2ª transacción: asociar ubicación (si procede)
+    if ubicacion_obj is not None:
+        try:
+            ubicacion_obj.usuario_id = u.id
+            db.add(ubicacion_obj)
+            db.commit()
+            db.refresh(u)
+        except DBAPIError:
+            db.rollback()
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "Error interno de base de datos al asociar la ubicación",
+            )
+
+    return u
+
 
 
 @router.get(
@@ -238,20 +296,58 @@ def update_user(user_id: int, payload: UsuarioUpdateIn, db: Session = Depends(ge
         demote = payload.role is not None and payload.role != "ADMIN"
         deactivate = payload.active is not None and payload.active is False
         if (demote or deactivate) and not _last_admin_guard(db, exclude_user_id=user_id):
-            raise HTTPException(status.HTTP_409_CONFLICT, "No puedes dejar el sistema sin ningún ADMIN activo")
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "No puedes dejar el sistema sin ningún ADMIN activo",
+            )
 
+    # Validación previa de la nueva ubicación (si viene)
+    nueva_ubicacion: Optional[Ubicacion] = None
+    if payload.ubicacion_id is not None:
+        nueva_ubicacion = db.get(Ubicacion, payload.ubicacion_id)
+        if not nueva_ubicacion:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Ubicación inexistente",
+            )
+        if nueva_ubicacion.tipo != "TECNICO":
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Sólo se pueden asociar ubicaciones de tipo 'TECNICO' a usuarios",
+            )
+        if (
+            nueva_ubicacion.usuario_id is not None
+            and nueva_ubicacion.usuario_id != u.id
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "La ubicación ya está asociada a otro usuario",
+            )
+
+    # Campos básicos
     if payload.email is not None:
         u.email = str(payload.email).strip()
     if payload.role is not None:
         u.role = payload.role
     if payload.active is not None:
         u.active = payload.active
-    
-    # Actualizar campos nuevos
+
+    # Campos de perfil
     if payload.nombre is not None:
         u.nombre = payload.nombre.strip()
     if payload.apellidos is not None:
         u.apellidos = payload.apellidos.strip()
+
+    # Gestionar cambio de ubicación
+    if nueva_ubicacion is not None:
+        # Si tenía una ubicación distinta, la liberamos
+        if u.ubicacion_asociada and u.ubicacion_asociada.id != nueva_ubicacion.id:
+            antigua = u.ubicacion_asociada
+            antigua.usuario_id = None
+            db.add(antigua)
+
+        nueva_ubicacion.usuario_id = u.id
+        db.add(nueva_ubicacion)
 
     try:
         db.add(u)
@@ -263,7 +359,11 @@ def update_user(user_id: int, payload: UsuarioUpdateIn, db: Session = Depends(ge
         raise HTTPException(status.HTTP_409_CONFLICT, "Email ya en uso")
     except DBAPIError:
         db.rollback()
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Error interno de base de datos")
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Error interno de base de datos",
+        )
+
 
 
 @router.post(
