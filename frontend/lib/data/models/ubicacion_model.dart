@@ -9,9 +9,19 @@ class UbicacionModel {
   });
 
   factory UbicacionModel.fromJson(Map<String, dynamic> json) {
+    // Aseguramos que el id sea int aunque venga como String
+    final dynamic rawId = json['id'];
+
+    // Por si en backend algún día usan otro campo de texto
+    final dynamic rawNombre =
+        json['nombre'] ??
+        json['descripcion'] ??
+        json['nombre_ubicacion'] ??
+        json['label'];
+
     return UbicacionModel(
-      id: json['id'] as int,
-      nombre: json['nombre'] as String,
+      id: rawId is int ? rawId : int.parse(rawId.toString()),
+      nombre: (rawNombre ?? '').toString(),
     );
   }
 }

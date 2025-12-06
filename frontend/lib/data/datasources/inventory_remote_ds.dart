@@ -30,6 +30,7 @@ class InventoryRemoteDataSource {
   }
 
   // NUEVO: listar ubicaciones para poder mostrar el nombre
+   
   Future<List<UbicacionModel>> getUbicaciones() async {
     final response = await _client.dio.get(
       '/v1/ubicaciones',
@@ -39,9 +40,63 @@ class InventoryRemoteDataSource {
       },
     );
 
-    return (response.data as List)
+    final dynamic data = response.data;
+    List<dynamic> lista;
+
+    if (data is List) {
+      // Caso simple: el backend devuelve [ {id, nombre, ...}, ... ]
+      lista = data;
+    } else if (data is Map<String, dynamic>) {
+      // Casos típicos de paginación: { "items": [...]} / { "results": [...] } / { "data": [...] }
+      if (data['items'] is List) {
+        lista = data['items'] as List;
+      } else if (data['results'] is List) {
+        lista = data['results'] as List;
+      } else if (data['data'] is List) {
+        lista = data['data'] as List;
+      } else {
+        // Último recurso: si no sabemos dónde están, lanzamos un error descriptivo
+        throw Exception(
+          'Formato inesperado de /v1/ubicaciones: ${data.runtimeType}',
+        );
+      }
+    } else {
+      throw Exception(
+        'Respuesta inesperada de /v1/ubicaciones: ${data.runtimeType}',
+      );
+    }
+
+    return lista
+        .where((e) => e != null)
         .map((e) => UbicacionModel.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+    // Crear ubicación (se usa desde formularios de usuario/equipo)
+  Future<UbicacionModel> crearUbicacion({
+    required String nombre,
+    int? seccionId,
+    String tipo = 'OTRO', // Para usuarios usaremos 'TECNICO'
+    int? usuarioId,
+  }) async {
+    final data = <String, dynamic>{
+      'nombre': nombre,
+      'tipo': tipo,
+    };
+
+    if (seccionId != null) {
+      data['seccion_id'] = seccionId;
+    }
+    if (usuarioId != null) {
+      data['usuario_id'] = usuarioId;
+    }
+
+    final response = await _client.dio.post(
+      '/v1/ubicaciones',
+      data: data,
+    );
+
+    return UbicacionModel.fromJson(response.data as Map<String, dynamic>);
   }
 
   // Crear equipo

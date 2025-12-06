@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../data/models/equipo_model.dart';
 import '../../../../logic/inventory_cubit/inventory_cubit.dart';
+import '../../../../data/repositories/inventory_repository.dart';
 
 const List<String> _tiposEquipo = [
 // Categorías de equipo
@@ -84,60 +85,96 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
     super.dispose();
   }
 
-  void _submit() {
-    if (!_formKey.currentState!.validate()) return;
+Future<void> _submit() async {
+  if (!_formKey.currentState!.validate()) return;
 
-    final identidad = _idCtrl.text.trim();
-    final numeroSerie =
-        _snCtrl.text.trim().isEmpty ? null : _snCtrl.text.trim();
-    final nfcTag =
-        _nfcCtrl.text.trim().isEmpty ? null : _nfcCtrl.text.trim();
-    final notas =
-        _notasCtrl.text.trim().isEmpty ? null : _notasCtrl.text.trim();
+  final identidad = _idCtrl.text.trim();
+  final numeroSerie =
+      _snCtrl.text.trim().isEmpty ? null : _snCtrl.text.trim();
+  final nfcTag =
+      _nfcCtrl.text.trim().isEmpty ? null : _nfcCtrl.text.trim();
+  final notas =
+      _notasCtrl.text.trim().isEmpty ? null : _notasCtrl.text.trim();
 
-    final ubiText = _ubicacionCtrl.text.trim();
-    final secText = _seccionCtrl.text.trim();
+  final ubiText = _ubicacionCtrl.text.trim();
+  final secText = _seccionCtrl.text.trim();
 
-    final int? ubicacionId =
-        ubiText.isEmpty ? null : int.tryParse(ubiText);
-    final int? seccionId =
-        secText.isEmpty ? null : int.tryParse(secText);
+  // Igual que antes para sección
+  final int? seccionId =
+      secText.isEmpty ? null : int.tryParse(secText);
 
-    final tipo = _tipoSeleccionado;
-    if (tipo == null || tipo.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Debes seleccionar un tipo")),
-      );
-      return;
-    }
-
-    final cubit = context.read<InventoryCubit>();
-
-    if (_isEditing) {
-      cubit.actualizarEquipo(
-        id: widget.equipo!.id,
-        identidad: identidad,
-        numeroSerie: numeroSerie,
-        tipo: tipo,
-        nfcTag: nfcTag,
-        ubicacionId: ubicacionId,
-        seccionId: seccionId,
-        notas: notas,
-      );
+  // NUEVO: lógica para ubicación (ID o nombre)
+  int? ubicacionId;
+  if (ubiText.isNotEmpty) {
+    final parsedId = int.tryParse(ubiText);
+    if (parsedId != null) {
+      // Si es número, usamos directamente ese ID (como antes)
+      ubicacionId = parsedId;
     } else {
-      cubit.crearEquipo(
-        identidad: identidad,
-        numeroSerie: numeroSerie,
-        tipo: tipo,
-        nfcTag: nfcTag,
-        ubicacionId: ubicacionId,
-        seccionId: seccionId,
-        notas: notas,
-      );
+      // Si es texto, creamos una ubicación nueva en backend
+      try {
+        final inventoryRepo = context.read<InventoryRepository>();
+        final nuevaUbic = await inventoryRepo.crearUbicacion(
+          nombre: ubiText,
+          seccionId: seccionId,
+          tipo: 'OTRO', // Para equipos: tipo genérico OTRO
+        );
+        ubicacionId = nuevaUbic.id;
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Error creando la ubicación inicial. Revisa el nombre o inténtalo de nuevo.',
+            ),
+          ),
+        );
+        return;
+      }
     }
-
-    Navigator.pop(context);
+  } else {
+    ubicacionId = null;
   }
+
+  final tipo = _tipoSeleccionado;
+  if (tipo == null || tipo.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Debes seleccionar un tipo")),
+    );
+    return;
+  }
+
+  final cubit = context.read<InventoryCubit>();
+
+  if (_isEditing) {
+    // OJO: mismos parámetros que ya tenías
+    await cubit.actualizarEquipo(
+      id: widget.equipo!.id,
+      identidad: identidad,
+      numeroSerie: numeroSerie,
+      tipo: tipo,
+      nfcTag: nfcTag,
+      ubicacionId: ubicacionId,
+      seccionId: seccionId,
+      notas: notas,
+    );
+  } else {
+    // OJO: mismos parámetros que ya tenías
+    await cubit.crearEquipo(
+      identidad: identidad,
+      numeroSerie: numeroSerie,
+      tipo: tipo,
+      nfcTag: nfcTag,
+      ubicacionId: ubicacionId,
+      seccionId: seccionId,
+      notas: notas,
+    );
+  }
+
+  if (!mounted) return;
+  Navigator.pop(context);
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -196,11 +233,11 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
                 TextFormField(
                   controller: _ubicacionCtrl,
                   decoration: const InputDecoration(
-                    labelText: "Ubicación ID inicial",
+                    labelText: "Ubicación ID inicial (ID o nombre)",
                     helperText:
-                        "Opcional. Se puede dejar vacío si no se conoce",
+                        "Opcional. Si escribes un nombre, se creara automáticamente",
                   ),
-                  keyboardType: TextInputType.number,
+                  keyboardType: TextInputType.text,
                 ),
                 const SizedBox(height: 10),
                 TextFormField(

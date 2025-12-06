@@ -16,7 +16,7 @@ class UsersTab extends StatefulWidget {
 
 class _UsersTabState extends State<UsersTab> {
   late final List<PlutoColumn> columns;
-  late Future<Map<int, String>> _ubicacionesFuture; // <--- NUEVO
+  //late Future<Map<int, String>> _ubicacionesFuture; // <--- NUEVO
 
   @override
   void initState() {
@@ -64,9 +64,10 @@ class _UsersTabState extends State<UsersTab> {
       ),
     ];
 
-    // Cargamos ubicaciones una vez
-    _ubicacionesFuture = _loadUbicaciones();
+    // ⛔️ Elimina esta línea:
+    // _ubicacionesFuture = _loadUbicaciones();
   }
+
 
   Future<Map<int, String>> _loadUbicaciones() async {
     final repo = context.read<InventoryRepository>();
@@ -123,9 +124,11 @@ class _UsersTabState extends State<UsersTab> {
           }
 
           return FutureBuilder<Map<int, String>>(
-            future: _ubicacionesFuture,
+            // Pedimos siempre ubicaciones frescas
+            future: _loadUbicaciones(),
             builder: (context, snapshot) {
               final mapaUbicaciones = snapshot.data ?? const {};
+
 
               return PlutoGrid(
                 columns: columns,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../logic/admin_cubit/admin_cubit.dart';
 import '../../../../data/models/user_model.dart';
+import '../../../../data/repositories/inventory_repository.dart';
 
 class UserFormDialog extends StatefulWidget {
   final UserModel? user;
@@ -49,40 +50,70 @@ class _UserFormDialogState extends State<UserFormDialog> {
     super.dispose();
   }
 
-  void _submit() {
-    if (_formKey.currentState!.validate()) {
-      final ubiText = _ubiCtrl.text.trim();
-      final int? ubicacionId =
-          ubiText.isEmpty ? null : int.tryParse(ubiText);
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
 
-      if (widget.user == null) {
-        // Crear
-        context.read<AdminCubit>().crearUsuario(
-              username: _userCtrl.text,
-              email: _emailCtrl.text,
-              password: _passCtrl.text,
-              rol: _rol,
-              nombre: _nomCtrl.text,
-              apellidos: _apeCtrl.text,
-              ubicacionId: ubicacionId,
-            );
+    final ubiText = _ubiCtrl.text.trim();
+    int? ubicacionId;
+
+    if (ubiText.isNotEmpty) {
+      // 1) Si es número, usamos el ID directamente
+      final parsedId = int.tryParse(ubiText);
+      if (parsedId != null) {
+        ubicacionId = parsedId;
       } else {
-        // Editar
-        context.read<AdminCubit>().actualizarUsuario(
-              widget.user!.id,
-              email: _emailCtrl.text,
-              rol: _rol,
-              activo: _activo,
-              password:
-                  _passCtrl.text.isNotEmpty ? _passCtrl.text : null,
-              nombre: _nomCtrl.text,
-              apellidos: _apeCtrl.text,
-              ubicacionId: ubicacionId,
-            );
+        // 2) Si es texto, creamos una ubicación de tipo TECNICO
+        try {
+          final inventoryRepo = context.read<InventoryRepository>();
+          final nuevaUbic = await inventoryRepo.crearUbicacion(
+            nombre: ubiText,
+            tipo: 'TECNICO',
+          );
+          ubicacionId = nuevaUbic.id;
+        } catch (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Error creando la ubicación de técnico. Revisa el nombre o inténtalo de nuevo.',
+              ),
+            ),
+          );
+          return;
+        }
       }
-      Navigator.pop(context);
     }
+
+    if (widget.user == null) {
+      // Crear
+      await context.read<AdminCubit>().crearUsuario(
+            username: _userCtrl.text,
+            email: _emailCtrl.text,
+            password: _passCtrl.text,
+            rol: _rol,
+            nombre: _nomCtrl.text,
+            apellidos: _apeCtrl.text,
+            ubicacionId: ubicacionId,
+          );
+    } else {
+      // Editar
+      await context.read<AdminCubit>().actualizarUsuario(
+            widget.user!.id,
+            email: _emailCtrl.text,
+            rol: _rol,
+            activo: _activo,
+            password:
+                _passCtrl.text.isNotEmpty ? _passCtrl.text : null,
+            nombre: _nomCtrl.text,
+            apellidos: _apeCtrl.text,
+            ubicacionId: ubicacionId,
+          );
+    }
+
+    if (!mounted) return;
+    Navigator.pop(context);
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -118,12 +149,13 @@ class _UserFormDialogState extends State<UserFormDialog> {
                 TextFormField(
                   controller: _ubiCtrl,
                   decoration: const InputDecoration(
-                    labelText: "Ubicación (ID Técnico)",
+                    labelText: "Ubicación (ID o nombre técnico)",
                     helperText:
-                        "Opcional. Debe existir una ubicación de tipo TÉCNICO",
+                        "Opcional. Si escribes un nombre, se creará una ubicación TÉCNICO automáticamente",
                   ),
-                  keyboardType: TextInputType.number,
+                  keyboardType: TextInputType.text,
                 ),
+
                 const SizedBox(height: 10),
                 // FILA DE NOMBRE Y APELLIDOS
                 Row(

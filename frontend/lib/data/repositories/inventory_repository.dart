@@ -15,9 +15,25 @@ class InventoryRepository {
   Future<List<EquipoModel>> buscarEquipos({String? query}) =>
       _remoteDs.getEquipos(query: query);
 
-  // NUEVO: listar ubicaciones para poder obtener el nombre
+  // Listar ubicaciones para poder obtener el nombre
   Future<List<UbicacionModel>> listarUbicaciones() =>
       _remoteDs.getUbicaciones();
+
+    // Crear ubicación (wrapper de datasource)
+  Future<UbicacionModel> crearUbicacion({
+    required String nombre,
+    int? seccionId,
+    String tipo = 'OTRO',
+    int? usuarioId,
+  }) {
+    return _remoteDs.crearUbicacion(
+      nombre: nombre,
+      seccionId: seccionId,
+      tipo: tipo,
+      usuarioId: usuarioId,
+    );
+  }
+   
 
   // Crear equipo
   Future<void> crearEquipo({
