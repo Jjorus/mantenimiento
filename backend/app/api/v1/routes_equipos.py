@@ -18,7 +18,32 @@ router = APIRouter(prefix="/equipos", tags=["equipos"])
 
 # ---------- Constantes y Helpers ----------
 EstadoEquipo = Literal["OPERATIVO", "MANTENIMIENTO", "BAJA", "CALIBRACION", "RESERVA"]
-TIPOS_VALIDOS = {"Calibrador", "Multímetro", "Generador", "Osciloscopio", "Fuente", "Analizador", "Otro"}
+TIPOS_VALIDOS = {
+    "Masas",
+    "Fuerza",
+    "Dimensional",
+    "3D",
+    "Par",
+    "Verificación Dimensional",
+    "Temperatura",
+    "Electricidad",
+    "Químico",
+    "Limpieza",
+    "Acelerómetros",
+    "Acústica",
+    "Caudal",
+    "Presión",
+    "Densidad y Volumen",
+    "Óptica y radiometría",
+    "Ultrasonidos",
+    "Calibrador",
+    "Multímetro",
+    "Generador",
+    "Osciloscopio",
+    "Fuente",
+    "Analizador",
+    "Otro",
+}
 TIPOS_CANONICOS = {t.lower(): t for t in TIPOS_VALIDOS}
 ALLOWED_ORDEN = {"id_asc", "id_desc", "identidad_asc", "identidad_desc", "tipo_asc", "tipo_desc"}
 

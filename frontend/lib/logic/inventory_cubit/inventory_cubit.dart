@@ -1,7 +1,10 @@
+// frontend/lib/logic/inventory_cubit/inventory_cubit.dart
 import 'dart:io';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../data/repositories/inventory_repository.dart';
+
 import '../../core/api/api_exception.dart';
+import '../../data/repositories/inventory_repository.dart';
 import 'inventory_state.dart';
 
 class InventoryCubit extends Cubit<InventoryState> {
@@ -18,11 +21,26 @@ class InventoryCubit extends Cubit<InventoryState> {
     );
 
     try {
+      // 1) Equipos
       final equipos = await _repository.buscarEquipos(query: query);
+
+      // 2) Ubicaciones → mapa id → nombre
+      Map<int, String> mapaUbicaciones = {};
+      try {
+        final ubicaciones = await _repository.listarUbicaciones();
+        mapaUbicaciones = {
+          for (final u in ubicaciones) u.id: u.nombre,
+        };
+      } catch (_) {
+        // Si falla, dejamos el mapa vacío y seguimos
+        mapaUbicaciones = {};
+      }
+
       emit(
         state.copyWith(
           status: InventoryStatus.success,
           equipos: equipos,
+          ubicaciones: mapaUbicaciones,
         ),
       );
     } on ApiException catch (e) {
@@ -36,74 +54,102 @@ class InventoryCubit extends Cubit<InventoryState> {
       emit(
         state.copyWith(
           status: InventoryStatus.failure,
-          errorMessage: "Error inesperado al cargar inventario",
+          errorMessage: 'Error inesperado al cargar inventario',
         ),
       );
     }
   }
 
-  // Crear equipo
   Future<void> crearEquipo({
     required String identidad,
     String? numeroSerie,
     required String tipo,
+    String estado = 'OPERATIVO',
     String? nfcTag,
     int? seccionId,
     int? ubicacionId,
     String? notas,
   }) async {
-    emit(state.copyWith(status: InventoryStatus.loading));
+    emit(
+      state.copyWith(
+        status: InventoryStatus.loading,
+        errorMessage: null,
+      ),
+    );
+
     try {
       await _repository.crearEquipo(
         identidad: identidad,
         numeroSerie: numeroSerie,
         tipo: tipo,
+        estado: estado,
         nfcTag: nfcTag,
         seccionId: seccionId,
         ubicacionId: ubicacionId,
         notas: notas,
       );
       await loadInventory();
+    } on ApiException catch (e) {
+      emit(
+        state.copyWith(
+          status: InventoryStatus.failure,
+          errorMessage: e.message,
+        ),
+      );
     } catch (_) {
       emit(
         state.copyWith(
           status: InventoryStatus.failure,
-          errorMessage: "Error al crear el equipo",
+          errorMessage: 'Error al crear el equipo',
         ),
       );
-      loadInventory();
+      await loadInventory();
     }
   }
 
-  // Actualizar equipo (edición ficha)
   Future<void> actualizarEquipo({
     required int id,
     required String identidad,
     String? numeroSerie,
     required String tipo,
+    String? estado,
     String? nfcTag,
     int? seccionId,
     int? ubicacionId,
     String? notas,
   }) async {
-    emit(state.copyWith(status: InventoryStatus.loading));
+    emit(
+      state.copyWith(
+        status: InventoryStatus.loading,
+        errorMessage: null,
+      ),
+    );
+
     try {
       await _repository.actualizarEquipo(
-        id: id,
+        id: id, // ← aquí con nombre, coincide con tu InventoryRepository
         identidad: identidad,
         numeroSerie: numeroSerie,
         tipo: tipo,
+        estado: estado,
         nfcTag: nfcTag,
         seccionId: seccionId,
         ubicacionId: ubicacionId,
         notas: notas,
       );
       await loadInventory();
+    } on ApiException catch (e) {
+      emit(
+        state.copyWith(
+          status: InventoryStatus.failure,
+          errorMessage: e.message,
+        ),
+      );
     } catch (_) {
       emit(
         state.copyWith(
           status: InventoryStatus.failure,
-          errorMessage: "Error al actualizar el equipo",
+          errorMessage: 'Error al actualizar el equipo',
         ),
       );
       await loadInventory();
@@ -114,7 +160,7 @@ class InventoryCubit extends Cubit<InventoryState> {
     try {
       await _repository.subirAdjuntoEquipo(equipoId, file);
     } catch (_) {
-      // error silencioso
+      throw Exception('Error al subir adjunto');
     }
   }
 
@@ -122,16 +168,16 @@ class InventoryCubit extends Cubit<InventoryState> {
     try {
       await _repository.eliminarAdjunto(equipoId, adjuntoId);
     } catch (_) {
-      throw Exception("Error al eliminar adjunto");
+      throw Exception('Error al eliminar adjunto');
     }
   }
 
   Future<void> guardarNotas(int equipoId, String notas) async {
     try {
       await _repository.actualizarNotas(equipoId, notas);
-      loadInventory();
+      await loadInventory();
     } catch (_) {
-      throw Exception("Error guardando notas");
+      throw Exception('Error guardando notas');
     }
   }
 }

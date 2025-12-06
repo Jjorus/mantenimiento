@@ -5,6 +5,7 @@ import '../../../../data/models/equipo_model.dart';
 import '../../../../logic/inventory_cubit/inventory_cubit.dart';
 
 const List<String> _tiposEquipo = [
+// Categorías de equipo
   'Masas',
   'Fuerza',
   'Dimensional',
@@ -22,6 +23,15 @@ const List<String> _tiposEquipo = [
   'Densidad y Volumen',
   'Óptica y radiometría',
   'Ultrasonidos',
+
+  // Tipos ya existentes en BBDD / backend
+  'Calibrador',
+  'Multímetro',
+  'Generador',
+  'Osciloscopio',
+  'Fuente',
+  'Analizador',
+  'Otro',
 ];
 
 class EquipmentFormDialog extends StatefulWidget {
@@ -58,9 +68,11 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
     _seccionCtrl =
         TextEditingController(text: equipo?.seccionId?.toString() ?? '');
     _notasCtrl = TextEditingController(text: equipo?.notas ?? '');
-    _tipoSeleccionado = equipo?.tipo;
+    
+    final tipo = equipo?.tipo;
+    _tipoSeleccionado =
+        (tipo != null && _tiposEquipo.contains(tipo)) ? tipo : null;
   }
-
   @override
   void dispose() {
     _idCtrl.dispose();

@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/api/dio_client.dart';
 import '../models/equipo_model.dart';
+import '../models/ubicacion_model.dart'; // <--- NUEVO
 
 class InventoryRemoteDataSource {
   final DioClient _client;
@@ -15,25 +16,61 @@ class InventoryRemoteDataSource {
     return EquipoModel.fromJson(response.data);
   }
 
-  Future<List<EquipoModel>> getEquipos({String? query, int? ubicacionId}) async {
+  Future<List<EquipoModel>> getEquipos({String? query}) async {
     final response = await _client.dio.get(
       '/v1/equipos',
       queryParameters: {
         if (query != null && query.isNotEmpty) 'q': query,
-        if (ubicacionId != null) 'ubicacion_id': ubicacionId,
       },
     );
+
     return (response.data as List)
-        .map((e) => EquipoModel.fromJson(e))
+        .map((e) => EquipoModel.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  // NUEVO: listar ubicaciones para poder mostrar el nombre
+  Future<List<UbicacionModel>> getUbicaciones() async {
+    final response = await _client.dio.get(
+      '/v1/ubicaciones',
+      queryParameters: {
+        'limit': 200,
+        'offset': 0,
+      },
+    );
+
+    return (response.data as List)
+        .map((e) => UbicacionModel.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
   // Crear equipo
-  Future<void> createEquipo(Map<String, dynamic> data) async {
+  Future<void> createEquipo({
+    required String identidad,
+    String? numeroSerie,
+    required String tipo,
+    String estado = 'OPERATIVO',
+    String? nfcTag,
+    int? seccionId,
+    int? ubicacionId,
+    String? notas,
+  }) async {
+    final data = {
+      'identidad': identidad,
+      if (numeroSerie != null && numeroSerie.isNotEmpty)
+        'numero_serie': numeroSerie,
+      'tipo': tipo,
+      'estado': estado,
+      if (nfcTag != null && nfcTag.isNotEmpty) 'nfc_tag': nfcTag,
+      if (seccionId != null) 'seccion_id': seccionId,
+      if (ubicacionId != null) 'ubicacion_id': ubicacionId,
+      if (notas != null && notas.isNotEmpty) 'notas': notas,
+    };
+
     await _client.dio.post('/v1/equipos', data: data);
   }
 
-  // Actualizar equipo (ficha completa y/o notas)
+  // Actualizar equipo
   Future<void> updateEquipo(
     int id, {
     String? identidad,
@@ -46,6 +83,7 @@ class InventoryRemoteDataSource {
     String? notas,
   }) async {
     final data = <String, dynamic>{};
+
     if (identidad != null) data['identidad'] = identidad;
     if (numeroSerie != null) data['numero_serie'] = numeroSerie;
     if (tipo != null) data['tipo'] = tipo;
@@ -85,9 +123,8 @@ class InventoryRemoteDataSource {
   }
 
   Future<File> downloadFile(String url, String fileName) async {
-    final tempDir = await getTemporaryDirectory();
-    final savePath =
-        '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_$fileName';
+    final tmpDir = await getTemporaryDirectory();
+    final savePath = '${tmpDir.path}/$fileName';
 
     await _client.dio.download(
       url,
