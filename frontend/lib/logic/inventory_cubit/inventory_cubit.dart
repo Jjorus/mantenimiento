@@ -180,4 +180,14 @@ class InventoryCubit extends Cubit<InventoryState> {
       throw Exception('Error guardando notas');
     }
   }
+
+    Future<void> eliminarEquipo(int id) async {
+    try {
+      await _repository.eliminarEquipo(id);
+      await loadInventory();
+    } catch (_) {
+      throw Exception('Error eliminando equipo');
+    }
+  }
+
 }

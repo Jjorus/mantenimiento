@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../datasources/admin_remote_ds.dart';
 import '../models/user_model.dart';
 
@@ -55,4 +57,19 @@ class AdminRepository {
   }
 
   Future<void> eliminarUsuario(int id) => _remoteDs.deleteUser(id);
+
+    // --- NOTAS Y ADJUNTOS USUARIO ---
+
+  Future<void> guardarNotasUsuario(int id, String notas) =>
+      _remoteDs.updateNotasUsuario(id, notas);
+
+  Future<void> subirAdjuntoUsuario(int id, File file) =>
+      _remoteDs.uploadAdjuntoUsuario(id, file);
+
+  Future<List<Map<String, String>>> listarAdjuntosUsuario(int id) =>
+      _remoteDs.getAdjuntosUsuarioURLs(id);
+
+  Future<void> eliminarAdjuntoUsuario(int userId, int adjuntoId) =>
+      _remoteDs.deleteAdjuntoUsuario(userId, adjuntoId);
+
 }

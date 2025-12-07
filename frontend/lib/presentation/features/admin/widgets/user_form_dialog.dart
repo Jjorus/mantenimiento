@@ -242,7 +242,7 @@ class _UserFormDialogState extends State<UserFormDialog> {
 
                 // Rol
                 DropdownButtonFormField<String>(
-                  value: _rol,
+                  initialValue: _rol,
                   decoration: const InputDecoration(
                     labelText: "Rol",
                   ),

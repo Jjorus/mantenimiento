@@ -14,8 +14,8 @@ class ApiException implements Exception {
 }
 
 class AuthException extends ApiException {
-  AuthException({String message = "Sesión caducada o credenciales inválidas"})
-      : super(message: message, statusCode: 401);
+  AuthException({super.message = "Sesión caducada o credenciales inválidas"})
+      : super(statusCode: 401);
 }
 
 class PermissionException extends ApiException {

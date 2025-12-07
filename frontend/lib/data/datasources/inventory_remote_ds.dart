@@ -241,4 +241,9 @@ class InventoryRemoteDataSource {
   Future<void> deleteAdjuntoEquipo(int equipoId, int adjuntoId) async {
     await _client.dio.delete('/v1/equipos/$equipoId/adjuntos/$adjuntoId');
   }
+
+    Future<void> deleteEquipo(int id) async {
+    await _client.dio.delete('/v1/equipos/$id');
+  }
+
 }

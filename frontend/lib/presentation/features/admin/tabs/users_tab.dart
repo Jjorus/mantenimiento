@@ -7,6 +7,7 @@ import '../../../../logic/admin_cubit/admin_state.dart';
 import '../../../../logic/inventory_cubit/inventory_cubit.dart';
 import '../../../../data/models/user_model.dart';
 import '../widgets/user_form_dialog.dart';
+import '../widgets/user_detail_dialog.dart';
 
 class UsersTab extends StatefulWidget {
   const UsersTab({super.key});
@@ -75,6 +76,37 @@ class _UsersTabState extends State<UsersTab> {
         width: 110,
         enableSorting: false,
         enableFilterMenuItem: false,
+        renderer: (ctx) {
+          final row = ctx.row;
+          final id = row.cells['id']!.value as int;
+
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                padding: EdgeInsets.zero,
+                iconSize: 18,
+                tooltip: 'Editar',
+                icon: const Icon(Icons.edit),
+                onPressed: () {
+                  final user = context
+                      .read<AdminCubit>()
+                      .state
+                      .users
+                      .firstWhere((u) => u.id == id);
+                  _openUserDialog(user: user);
+                },
+              ),
+              IconButton(
+                padding: EdgeInsets.zero,
+                iconSize: 18,
+                tooltip: 'Eliminar',
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: () => _confirmDeleteUser(id),
+              ),
+            ],
+          );
+        },
       ),
     ];
 
@@ -89,6 +121,15 @@ class _UsersTabState extends State<UsersTab> {
       builder: (context) => UserFormDialog(user: user),
     );
   }
+
+    void _openDetailDialog(UserModel user) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => UserDetailDialog(user: user),
+    );
+  }
+
 
   void _openCreateDialog() {
     _openUserDialog();
@@ -163,8 +204,9 @@ class _UsersTabState extends State<UsersTab> {
                   final id = event.row.cells['id']!.value as int;
                   final user =
                       state.users.firstWhere((u) => u.id == id);
-                  _openUserDialog(user: user);
+                  _openDetailDialog(user);
                 },
+
                 configuration: const PlutoGridConfiguration(
                   columnSize: PlutoGridColumnSizeConfig(
                     autoSizeMode: PlutoAutoSizeMode.scale,
@@ -176,5 +218,52 @@ class _UsersTabState extends State<UsersTab> {
         );
       },
     );
+  }
+
+  Future<void> _confirmDeleteUser(int id) async {
+    final adminCubit = context.read<AdminCubit>();
+    final user =
+        adminCubit.state.users.firstWhere((u) => u.id == id);
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar usuario'),
+        content: Text(
+          '¿Seguro que quieres eliminar al usuario "${user.username}"?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await adminCubit.eliminarUsuario(id);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Usuario eliminado')),
+        );
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error eliminando usuario'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }

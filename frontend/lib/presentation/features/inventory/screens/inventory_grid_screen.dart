@@ -78,6 +78,45 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
         enableFilterMenuItem: false,
         renderer: (_) => const Icon(Icons.history, color: Colors.blue),
       ),
+      PlutoColumn(
+        title: 'Acciones',
+        field: 'actions',
+        type: PlutoColumnType.text(),
+        width: 120,
+        enableSorting: false,
+        enableFilterMenuItem: false,
+        renderer: (ctx) {
+          final row = ctx.row;
+          final id = row.cells['id']!.value as int;
+
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                padding: EdgeInsets.zero,
+                iconSize: 18,
+                tooltip: 'Editar ficha',
+                icon: const Icon(Icons.edit),
+                onPressed: () {
+                  final state = context.read<InventoryCubit>().state;
+                  try {
+                    final equipo =
+                        state.equipos.firstWhere((e) => e.id == id);
+                    _openDetailDialog(equipo);
+                  } catch (_) {}
+                },
+              ),
+              IconButton(
+                padding: EdgeInsets.zero,
+                iconSize: 18,
+                tooltip: 'Eliminar equipo',
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: () => _confirmDeleteEquipo(id),
+              ),
+            ],
+          );
+        },
+      ),
     ];
   }
 
@@ -166,7 +205,57 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
         'estado': PlutoCell(value: e.estado),
         'ubicacion': PlutoCell(value: ubicNombre),
         'history': PlutoCell(value: 'ver'),
+         'actions': PlutoCell(value: 'actions'),
       },
     );
+  }
+
+  Future<void> _confirmDeleteEquipo(int id) async {
+    final invCubit = context.read<InventoryCubit>();
+    final state = invCubit.state;
+
+    final equipo =
+        state.equipos.firstWhere((e) => e.id == id, orElse: () => throw Exception());
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar equipo'),
+        content: Text(
+          '¿Seguro que quieres eliminar el equipo "${equipo.identidad ?? equipo.id}"?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await invCubit.eliminarEquipo(id);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Equipo eliminado')),
+        );
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error eliminando equipo'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }

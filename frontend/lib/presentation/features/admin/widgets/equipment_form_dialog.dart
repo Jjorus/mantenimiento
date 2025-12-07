@@ -218,7 +218,7 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
-                  value: _tipoSeleccionado,
+                  initialValue: _tipoSeleccionado,
                   decoration:
                       const InputDecoration(labelText: "Tipo de equipo"),
                   items: _tiposEquipo
@@ -258,7 +258,7 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
 
                 // Desplegable para ubicaciones EXISTENTES
                 DropdownButtonFormField<int>(
-                  value: selectedUbicValue,
+                  initialValue: selectedUbicValue,
                   decoration: const InputDecoration(
                     labelText: "Ubicación existente",
                     helperText: "Selecciona una ubicación ya creada",
