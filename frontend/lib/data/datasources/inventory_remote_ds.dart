@@ -72,7 +72,8 @@ class InventoryRemoteDataSource {
         .toList();
   }
 
-    // Crear ubicación (se usa desde formularios de usuario/equipo)
+    
+  // Crear ubicación (se usa desde formularios de usuario/equipo)
   Future<UbicacionModel> crearUbicacion({
     required String nombre,
     int? seccionId,
@@ -91,12 +92,59 @@ class InventoryRemoteDataSource {
       data['usuario_id'] = usuarioId;
     }
 
-    final response = await _client.dio.post(
-      '/v1/ubicaciones',
-      data: data,
-    );
+    try {
+      final response = await _client.dio.post(
+        '/v1/ubicaciones',
+        data: data,
+      );
+      return UbicacionModel.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final detail = e.response?.data;
 
-    return UbicacionModel.fromJson(response.data as Map<String, dynamic>);
+      // Caso especial: nombre duplicado -> reutilizamos la ubicación existente
+      if (statusCode == 422 && detail is List) {
+        bool esNombreDuplicado = false;
+
+        for (final err in detail) {
+          try {
+            final loc = err['loc'];
+            final type = err['type']?.toString();
+            final msg = err['msg']?.toString() ?? '';
+
+            final locEsNombre =
+                loc is List && loc.any((v) => v.toString() == 'nombre');
+
+            if (locEsNombre &&
+                (type == 'value_error.unique' ||
+                    msg.toLowerCase().contains('ya existe'))) {
+              esNombreDuplicado = true;
+              break;
+            }
+          } catch (_) {
+            // Ignoramos errores raros en el formato del error
+          }
+        }
+
+        if (esNombreDuplicado) {
+          try {
+            // Buscamos la ubicación ya existente con ese nombre
+            final todas = await getUbicaciones();
+            final buscado = nombre.trim().toLowerCase();
+            for (final u in todas) {
+              if (u.nombre.trim().toLowerCase() == buscado) {
+                return u;
+              }
+            }
+          } catch (_) {
+            // Si falla la recarga, dejamos que se repropage el error original
+          }
+        }
+      }
+
+      // Cualquier otro caso (no es nombre duplicado / no pudimos resolverlo)
+      rethrow;
+    }
   }
 
   // Crear equipo

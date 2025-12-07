@@ -55,6 +55,8 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
   late TextEditingController _notasCtrl;
   String? _tipoSeleccionado;
 
+  int? _selectedUbicacionId;
+
   bool get _isEditing => widget.equipo != null;
 
   @override
@@ -64,8 +66,12 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
     _idCtrl = TextEditingController(text: equipo?.identidad ?? '');
     _snCtrl = TextEditingController(text: equipo?.numeroSerie ?? '');
     _nfcCtrl = TextEditingController(text: equipo?.nfcTag ?? '');
-    _ubicacionCtrl =
-        TextEditingController(text: equipo?.ubicacionId?.toString() ?? '');
+
+    // Campo de texto SOLO para nueva ubicación (lo dejamos vacío)
+    _ubicacionCtrl = TextEditingController();
+    // Si estamos editando, preseleccionamos la ubicación actual en el desplegable
+    _selectedUbicacionId = equipo?.ubicacionId;
+
     _seccionCtrl =
         TextEditingController(text: equipo?.seccionId?.toString() ?? '');
     _notasCtrl = TextEditingController(text: equipo?.notas ?? '');
@@ -74,6 +80,7 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
     _tipoSeleccionado =
         (tipo != null && _tiposEquipo.contains(tipo)) ? tipo : null;
   }
+
   @override
   void dispose() {
     _idCtrl.dispose();
@@ -85,33 +92,29 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
     super.dispose();
   }
 
-Future<void> _submit() async {
-  if (!_formKey.currentState!.validate()) return;
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
 
-  final identidad = _idCtrl.text.trim();
-  final numeroSerie =
-      _snCtrl.text.trim().isEmpty ? null : _snCtrl.text.trim();
-  final nfcTag =
-      _nfcCtrl.text.trim().isEmpty ? null : _nfcCtrl.text.trim();
-  final notas =
-      _notasCtrl.text.trim().isEmpty ? null : _notasCtrl.text.trim();
+    final identidad = _idCtrl.text.trim();
+    final numeroSerie =
+        _snCtrl.text.trim().isEmpty ? null : _snCtrl.text.trim();
+    final nfcTag =
+        _nfcCtrl.text.trim().isEmpty ? null : _nfcCtrl.text.trim();
+    final notas =
+        _notasCtrl.text.trim().isEmpty ? null : _notasCtrl.text.trim();
 
-  final ubiText = _ubicacionCtrl.text.trim();
-  final secText = _seccionCtrl.text.trim();
+    final ubiText = _ubicacionCtrl.text.trim();
+    final secText = _seccionCtrl.text.trim();
 
-  // Igual que antes para sección
-  final int? seccionId =
-      secText.isEmpty ? null : int.tryParse(secText);
+    // Igual que antes para sección
+    final int? seccionId =
+        secText.isEmpty ? null : int.tryParse(secText);
 
-  // NUEVO: lógica para ubicación (ID o nombre)
-  int? ubicacionId;
-  if (ubiText.isNotEmpty) {
-    final parsedId = int.tryParse(ubiText);
-    if (parsedId != null) {
-      // Si es número, usamos directamente ese ID (como antes)
-      ubicacionId = parsedId;
-    } else {
-      // Si es texto, creamos una ubicación nueva en backend
+    // NUEVO: lógica para ubicación con método mixto (desplegable + texto)
+    int? ubicacionId = _selectedUbicacionId;
+
+    if (ubicacionId == null && ubiText.isNotEmpty) {
+      // Si no hay selección en el desplegable pero sí texto, creamos una ubicación nueva
       try {
         final inventoryRepo = context.read<InventoryRepository>();
         final nuevaUbic = await inventoryRepo.crearUbicacion(
@@ -125,59 +128,68 @@ Future<void> _submit() async {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Error creando la ubicación inicial. Revisa el nombre o inténtalo de nuevo.',
+              'Error creando la ubicación inicial. '
+              'Si ya existe, selecciona una del desplegable.',
             ),
           ),
         );
         return;
       }
     }
-  } else {
-    ubicacionId = null;
+
+    final tipo = _tipoSeleccionado;
+    if (tipo == null || tipo.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Debes seleccionar un tipo")),
+      );
+      return;
+    }
+
+    final cubit = context.read<InventoryCubit>();
+
+    if (_isEditing) {
+      // OJO: mismos parámetros que ya tenías
+      await cubit.actualizarEquipo(
+        id: widget.equipo!.id,
+        identidad: identidad,
+        numeroSerie: numeroSerie,
+        tipo: tipo,
+        nfcTag: nfcTag,
+        ubicacionId: ubicacionId,
+        seccionId: seccionId,
+        notas: notas,
+      );
+    } else {
+      // OJO: mismos parámetros que ya tenías
+      await cubit.crearEquipo(
+        identidad: identidad,
+        numeroSerie: numeroSerie,
+        tipo: tipo,
+        nfcTag: nfcTag,
+        ubicacionId: ubicacionId,
+        seccionId: seccionId,
+        notas: notas,
+      );
+    }
+
+    if (!mounted) return;
+    // InventoryCubit ya hace loadInventory() dentro de crear/actualizarEquipo,
+    // así que las tablas se refrescan solas.
+    Navigator.pop(context);
   }
-
-  final tipo = _tipoSeleccionado;
-  if (tipo == null || tipo.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Debes seleccionar un tipo")),
-    );
-    return;
-  }
-
-  final cubit = context.read<InventoryCubit>();
-
-  if (_isEditing) {
-    // OJO: mismos parámetros que ya tenías
-    await cubit.actualizarEquipo(
-      id: widget.equipo!.id,
-      identidad: identidad,
-      numeroSerie: numeroSerie,
-      tipo: tipo,
-      nfcTag: nfcTag,
-      ubicacionId: ubicacionId,
-      seccionId: seccionId,
-      notas: notas,
-    );
-  } else {
-    // OJO: mismos parámetros que ya tenías
-    await cubit.crearEquipo(
-      identidad: identidad,
-      numeroSerie: numeroSerie,
-      tipo: tipo,
-      nfcTag: nfcTag,
-      ubicacionId: ubicacionId,
-      seccionId: seccionId,
-      notas: notas,
-    );
-  }
-
-  if (!mounted) return;
-  Navigator.pop(context);
-}
-
 
   @override
   Widget build(BuildContext context) {
+    // Mapa de ubicaciones desde InventoryCubit para el desplegable
+    final invState = context.watch<InventoryCubit>().state;
+    final ubicacionesEntries = invState.ubicaciones.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+
+    final int? selectedUbicValue =
+        ubicacionesEntries.any((e) => e.key == _selectedUbicacionId)
+            ? _selectedUbicacionId
+            : null;
+
     return AlertDialog(
       title:
           Text(_isEditing ? "Editar ficha de equipo" : "Alta de Nueva Ficha"),
@@ -195,19 +207,20 @@ Future<void> _submit() async {
                     labelText: "Identidad (ID Interno)",
                   ),
                   validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? "Requerido" : null,
+                      v == null || v.trim().isEmpty ? "Requerido" : null,
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
                   controller: _snCtrl,
                   decoration: const InputDecoration(
-                    labelText: "N. Serie (opcional)",
+                    labelText: "Número de serie",
                   ),
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
                   value: _tipoSeleccionado,
-                  decoration: const InputDecoration(labelText: "Tipo"),
+                  decoration:
+                      const InputDecoration(labelText: "Tipo de equipo"),
                   items: _tiposEquipo
                       .map(
                         (t) => DropdownMenuItem<String>(
@@ -230,16 +243,42 @@ Future<void> _submit() async {
                   ),
                 ),
                 const SizedBox(height: 10),
+
+                // Campo de texto para NUEVA ubicación
                 TextFormField(
                   controller: _ubicacionCtrl,
                   decoration: const InputDecoration(
-                    labelText: "Ubicación ID inicial (ID o nombre)",
+                    labelText: "Nueva ubicación inicial",
                     helperText:
-                        "Opcional. Si escribes un nombre, se creara automáticamente",
+                        "Déjalo vacío si quieres usar una ubicación existente",
                   ),
                   keyboardType: TextInputType.text,
                 ),
                 const SizedBox(height: 10),
+
+                // Desplegable para ubicaciones EXISTENTES
+                DropdownButtonFormField<int>(
+                  value: selectedUbicValue,
+                  decoration: const InputDecoration(
+                    labelText: "Ubicación existente",
+                    helperText: "Selecciona una ubicación ya creada",
+                  ),
+                  items: ubicacionesEntries
+                      .map(
+                        (e) => DropdownMenuItem<int>(
+                          value: e.key,
+                          child: Text('${e.value} (ID ${e.key})'),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedUbicacionId = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 10),
+
                 TextFormField(
                   controller: _seccionCtrl,
                   decoration: const InputDecoration(
