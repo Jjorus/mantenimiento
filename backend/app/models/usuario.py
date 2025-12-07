@@ -12,6 +12,7 @@ from sqlalchemy import (
     CheckConstraint,
     Index,
     func,
+    Text,
 )
 from sqlalchemy.dialects.postgresql import CITEXT  # requiere extensión citext
 from pydantic import ConfigDict
@@ -75,6 +76,13 @@ class Usuario(SQLModel, table=True):
         default=None,
         sa_column=Column(String(150), nullable=True),
         description="Apellidos",
+    )
+
+     # --- Notas internas de usuario ---
+    notas: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+        description="Notas internas sobre el usuario (solo administración)",
     )
 
     # --- Seguridad / Estado ---

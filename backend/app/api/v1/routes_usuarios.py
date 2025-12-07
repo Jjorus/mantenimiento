@@ -1,15 +1,18 @@
 # backend/app/api/v1/routes_usuarios.py
 from typing import Optional, List, Literal
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Query, UploadFile, File
 from pydantic import BaseModel, Field, EmailStr
+from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, DBAPIError
 
 from app.core.deps import get_db, current_user, require_role
 from app.core.security import hash_password
+from app.core.file_manager import FileManager
 from app.models.usuario import Usuario
 from app.models.ubicacion import Ubicacion
+from app.models.usuario_adjunto import UsuarioAdjunto
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
 
@@ -29,6 +32,7 @@ class UsuarioOut(BaseModel):
     nombre: Optional[str] = None
     apellidos: Optional[str] = None
     ubicacion_id: Optional[int] = None  # NUEVO
+    notas: Optional[str] = None  # NUEVO: notas internas
 
     class Config:
         from_attributes = True
@@ -68,6 +72,12 @@ class UsuarioUpdateIn(BaseModel):
 
 class PasswordChangeIn(BaseModel):
     password: str = Field(..., min_length=6)
+
+class NotasIn(BaseModel):
+    notas: Optional[str] = Field(
+        None,
+        description="Notas internas del usuario",
+    )
 
 
 # ---------------------------
@@ -402,3 +412,141 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     except DBAPIError:
         db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Error interno de base de datos")
+    
+# ---------------------------
+# Notas y adjuntos de usuario
+# ---------------------------
+
+@router.patch(
+    "/{user_id}/notas",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("ADMIN"))],
+)
+def actualizar_notas_usuario(
+    user_id: int,
+    payload: NotasIn,
+    db: Session = Depends(get_db),
+):
+    u = db.get(Usuario, user_id)
+    if not u:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado")
+
+    u.notas = (payload.notas or "").strip() or None
+    try:
+        db.add(u)
+        db.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except DBAPIError:
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Error interno de base de datos",
+        )
+
+
+@router.post(
+    "/{user_id}/adjuntos",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_role("ADMIN"))],
+)
+async def subir_adjunto_usuario(
+    user_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user=Depends(current_user),
+):
+    u = db.get(Usuario, user_id)
+    if not u:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado")
+
+    file_data = await FileManager.save_file(file, "usuarios", f"user_{u.id}")
+
+    adjunto = UsuarioAdjunto(
+        usuario_id=u.id,
+        nombre_archivo=file_data["nombre_archivo"],
+        ruta_relativa=file_data["ruta_relativa"],
+        content_type=file_data["content_type"],
+        tamano_bytes=file_data["tamano_bytes"],
+        subido_por_id=int(user["id"]) if user else None,
+    )
+
+    db.add(adjunto)
+    db.commit()
+    db.refresh(adjunto)
+    return adjunto
+
+
+@router.get(
+    "/{user_id}/adjuntos",
+    dependencies=[Depends(require_role("ADMIN"))],
+)
+def listar_adjuntos_usuario(
+    user_id: int,
+    db: Session = Depends(get_db),
+):
+    u = db.get(Usuario, user_id)
+    if not u:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado")
+
+    adjuntos = db.exec(
+        select(UsuarioAdjunto).where(UsuarioAdjunto.usuario_id == user_id)
+    ).all()
+
+    return [
+        {
+            "id": a.id,
+            "nombre_archivo": a.nombre_archivo,
+            "url": f"/api/v1/usuarios/{user_id}/adjuntos/{a.id}",
+            "tipo": a.content_type,
+            "tamano": a.tamano_bytes,
+        }
+        for a in adjuntos
+    ]
+
+
+@router.get(
+    "/{user_id}/adjuntos/{adjunto_id}",
+    response_class=FileResponse,
+    dependencies=[Depends(require_role("ADMIN"))],
+)
+def descargar_adjunto_usuario(
+    user_id: int,
+    adjunto_id: int,
+    db: Session = Depends(get_db),
+):
+    adj = db.get(UsuarioAdjunto, adjunto_id)
+    if not adj or adj.usuario_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Adjunto no encontrado")
+
+    path = FileManager.get_path(adj.ruta_relativa)
+    if not path.is_file():
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Archivo físico no encontrado",
+        )
+
+    return FileResponse(
+        path,
+        media_type=adj.content_type or "application/octet-stream",
+        filename=adj.nombre_archivo,
+    )
+
+
+@router.delete(
+    "/{user_id}/adjuntos/{adjunto_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("ADMIN"))],
+)
+def eliminar_adjunto_usuario(
+    user_id: int,
+    adjunto_id: int,
+    db: Session = Depends(get_db),
+):
+    adj = db.get(UsuarioAdjunto, adjunto_id)
+    if not adj or adj.usuario_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Adjunto no encontrado")
+
+    FileManager.delete_file(adj.ruta_relativa)
+    db.delete(adj)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

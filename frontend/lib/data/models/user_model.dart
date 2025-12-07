@@ -16,6 +16,7 @@ class UserModel {
 
   @JsonKey(name: 'ubicacion_id')
   final int? ubicacionId;
+  final String? notas;
 
   const UserModel({
     required this.id,
@@ -26,6 +27,7 @@ class UserModel {
     this.nombre,
     this.apellidos,
     this.ubicacionId,
+    this.notas,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) =>
