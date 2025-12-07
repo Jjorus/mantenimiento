@@ -16,6 +16,7 @@ from .base import (
 from .reparacion_factura import ReparacionFactura
 from .incidencia_adjunto import IncidenciaAdjunto # Nuevo
 from .equipo_adjunto import EquipoAdjunto # Nuevo
+from .usuario_adjunto import UsuarioAdjunto  # Nuevo
 
 __all__ = [
     "SQLModel",
@@ -30,4 +31,5 @@ __all__ = [
     "ReparacionFactura",
     "IncidenciaAdjunto",
     "EquipoAdjunto",
+    "UsuarioAdjunto",
 ]

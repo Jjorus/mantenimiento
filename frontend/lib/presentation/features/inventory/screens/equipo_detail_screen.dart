@@ -1,11 +1,11 @@
-// Ruta: frontend/lib/presentation/features/inventory/screens/equipo_detail_screen.dart
+// frontend/lib/presentation/features/inventory/screens/equipo_detail_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-
 
 import '../../../../data/repositories/maintenance_repository.dart';
 import '../../../../data/repositories/movement_repository.dart';
 import '../../../../logic/equipment_history_cubit/equipment_history_cubit.dart';
+import '../../../../logic/inventory_cubit/inventory_cubit.dart';
 import '../../../../data/models/incidencia_model.dart';
 import '../../../../data/models/movimiento_model.dart';
 import '../../../../data/models/reparacion_model.dart';
@@ -43,7 +43,12 @@ class EquipoDetailScreen extends StatelessWidget {
               itemCount: state.timelineItems.length,
               itemBuilder: (context, index) {
                 final item = state.timelineItems[index];
-                return _buildTimelineItem(context, item, index, state.timelineItems.length);
+                return _buildTimelineItem(
+                  context,
+                  item,
+                  index,
+                  state.timelineItems.length,
+                );
               },
             );
           },
@@ -52,7 +57,12 @@ class EquipoDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildTimelineItem(BuildContext context, dynamic item, int index, int total) {
+  Widget _buildTimelineItem(
+    BuildContext context,
+    dynamic item,
+    int index,
+    int total,
+  ) {
     IconData icon;
     Color color;
     String title;
@@ -63,7 +73,20 @@ class EquipoDetailScreen extends StatelessWidget {
       icon = Icons.compare_arrows;
       color = Colors.blue;
       title = "Movimiento";
-      subtitle = "Hacia ubicación ${item.haciaUbicacionId ?? '?'}\n${item.comentario ?? ''}";
+
+      // ← usamos InventoryCubit para traducir id → nombre
+      final inventoryState = context.read<InventoryCubit>().state;
+      final mapaUbicaciones = inventoryState.ubicaciones;
+
+      String destino;
+      if (item.haciaUbicacionId != null) {
+        destino = mapaUbicaciones[item.haciaUbicacionId] ??
+            "ID ${item.haciaUbicacionId}";
+      } else {
+        destino = "?";
+      }
+
+      subtitle = "Hacia ubicación $destino\n${item.comentario ?? ''}";
       dateStr = item.fecha ?? "";
     } else if (item is IncidenciaModel) {
       icon = Icons.warning_amber_rounded;
@@ -97,12 +120,11 @@ class EquipoDetailScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          
           Column(
             children: [
               Container(
                 width: 2,
-                height: 16,
+                height: index == 0 ? 16 : 8,
                 color: index == 0 ? Colors.transparent : Colors.grey.shade300,
               ),
               Container(
@@ -117,13 +139,14 @@ class EquipoDetailScreen extends StatelessWidget {
               Expanded(
                 child: Container(
                   width: 2,
-                  color: index == total - 1 ? Colors.transparent : Colors.grey.shade300,
+                  color: index == total - 1
+                      ? Colors.transparent
+                      : Colors.grey.shade300,
                 ),
               ),
             ],
           ),
           const SizedBox(width: 12),
-
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(bottom: 24.0),
@@ -131,19 +154,31 @@ class EquipoDetailScreen extends StatelessWidget {
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   side: BorderSide(color: Colors.grey.shade200),
-                  borderRadius: BorderRadius.circular(12)
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      if (subtitle.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-                      ]
-                    ],
+                  padding: const EdgeInsets.all(12),
+                  child: DefaultTextStyle(
+                    style: Theme.of(context).textTheme.bodyMedium!,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        if (subtitle.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            subtitle,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ]
+                      ],
+                    ),
                   ),
                 ),
               ),

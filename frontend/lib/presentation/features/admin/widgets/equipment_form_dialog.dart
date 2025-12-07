@@ -3,8 +3,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../data/models/equipo_model.dart';
 import '../../../../logic/inventory_cubit/inventory_cubit.dart';
+import '../../../../data/repositories/inventory_repository.dart';
 
 const List<String> _tiposEquipo = [
+// Categorías de equipo
   'Masas',
   'Fuerza',
   'Dimensional',
@@ -22,6 +24,15 @@ const List<String> _tiposEquipo = [
   'Densidad y Volumen',
   'Óptica y radiometría',
   'Ultrasonidos',
+
+  // Tipos ya existentes en BBDD / backend
+  'Calibrador',
+  'Multímetro',
+  'Generador',
+  'Osciloscopio',
+  'Fuente',
+  'Analizador',
+  'Otro',
 ];
 
 class EquipmentFormDialog extends StatefulWidget {
@@ -44,6 +55,8 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
   late TextEditingController _notasCtrl;
   String? _tipoSeleccionado;
 
+  int? _selectedUbicacionId;
+
   bool get _isEditing => widget.equipo != null;
 
   @override
@@ -53,12 +66,19 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
     _idCtrl = TextEditingController(text: equipo?.identidad ?? '');
     _snCtrl = TextEditingController(text: equipo?.numeroSerie ?? '');
     _nfcCtrl = TextEditingController(text: equipo?.nfcTag ?? '');
-    _ubicacionCtrl =
-        TextEditingController(text: equipo?.ubicacionId?.toString() ?? '');
+
+    // Campo de texto SOLO para nueva ubicación (lo dejamos vacío)
+    _ubicacionCtrl = TextEditingController();
+    // Si estamos editando, preseleccionamos la ubicación actual en el desplegable
+    _selectedUbicacionId = equipo?.ubicacionId;
+
     _seccionCtrl =
         TextEditingController(text: equipo?.seccionId?.toString() ?? '');
     _notasCtrl = TextEditingController(text: equipo?.notas ?? '');
-    _tipoSeleccionado = equipo?.tipo;
+    
+    final tipo = equipo?.tipo;
+    _tipoSeleccionado =
+        (tipo != null && _tiposEquipo.contains(tipo)) ? tipo : null;
   }
 
   @override
@@ -72,7 +92,7 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
     final identidad = _idCtrl.text.trim();
@@ -86,10 +106,36 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
     final ubiText = _ubicacionCtrl.text.trim();
     final secText = _seccionCtrl.text.trim();
 
-    final int? ubicacionId =
-        ubiText.isEmpty ? null : int.tryParse(ubiText);
+    // Igual que antes para sección
     final int? seccionId =
         secText.isEmpty ? null : int.tryParse(secText);
+
+    // NUEVO: lógica para ubicación con método mixto (desplegable + texto)
+    int? ubicacionId = _selectedUbicacionId;
+
+    if (ubicacionId == null && ubiText.isNotEmpty) {
+      // Si no hay selección en el desplegable pero sí texto, creamos una ubicación nueva
+      try {
+        final inventoryRepo = context.read<InventoryRepository>();
+        final nuevaUbic = await inventoryRepo.crearUbicacion(
+          nombre: ubiText,
+          seccionId: seccionId,
+          tipo: 'OTRO', // Para equipos: tipo genérico OTRO
+        );
+        ubicacionId = nuevaUbic.id;
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Error creando la ubicación inicial. '
+              'Si ya existe, selecciona una del desplegable.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
 
     final tipo = _tipoSeleccionado;
     if (tipo == null || tipo.isEmpty) {
@@ -102,7 +148,8 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
     final cubit = context.read<InventoryCubit>();
 
     if (_isEditing) {
-      cubit.actualizarEquipo(
+      // OJO: mismos parámetros que ya tenías
+      await cubit.actualizarEquipo(
         id: widget.equipo!.id,
         identidad: identidad,
         numeroSerie: numeroSerie,
@@ -113,7 +160,8 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
         notas: notas,
       );
     } else {
-      cubit.crearEquipo(
+      // OJO: mismos parámetros que ya tenías
+      await cubit.crearEquipo(
         identidad: identidad,
         numeroSerie: numeroSerie,
         tipo: tipo,
@@ -124,11 +172,24 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
       );
     }
 
+    if (!mounted) return;
+    // InventoryCubit ya hace loadInventory() dentro de crear/actualizarEquipo,
+    // así que las tablas se refrescan solas.
     Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
+    // Mapa de ubicaciones desde InventoryCubit para el desplegable
+    final invState = context.watch<InventoryCubit>().state;
+    final ubicacionesEntries = invState.ubicaciones.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+
+    final int? selectedUbicValue =
+        ubicacionesEntries.any((e) => e.key == _selectedUbicacionId)
+            ? _selectedUbicacionId
+            : null;
+
     return AlertDialog(
       title:
           Text(_isEditing ? "Editar ficha de equipo" : "Alta de Nueva Ficha"),
@@ -146,19 +207,20 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
                     labelText: "Identidad (ID Interno)",
                   ),
                   validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? "Requerido" : null,
+                      v == null || v.trim().isEmpty ? "Requerido" : null,
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
                   controller: _snCtrl,
                   decoration: const InputDecoration(
-                    labelText: "N. Serie (opcional)",
+                    labelText: "Número de serie",
                   ),
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
-                  value: _tipoSeleccionado,
-                  decoration: const InputDecoration(labelText: "Tipo"),
+                  initialValue: _tipoSeleccionado,
+                  decoration:
+                      const InputDecoration(labelText: "Tipo de equipo"),
                   items: _tiposEquipo
                       .map(
                         (t) => DropdownMenuItem<String>(
@@ -181,16 +243,42 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
                   ),
                 ),
                 const SizedBox(height: 10),
+
+                // Campo de texto para NUEVA ubicación
                 TextFormField(
                   controller: _ubicacionCtrl,
                   decoration: const InputDecoration(
-                    labelText: "Ubicación ID inicial",
+                    labelText: "Nueva ubicación inicial",
                     helperText:
-                        "Opcional. Se puede dejar vacío si no se conoce",
+                        "Déjalo vacío si quieres usar una ubicación existente",
                   ),
-                  keyboardType: TextInputType.number,
+                  keyboardType: TextInputType.text,
                 ),
                 const SizedBox(height: 10),
+
+                // Desplegable para ubicaciones EXISTENTES
+                DropdownButtonFormField<int>(
+                  initialValue: selectedUbicValue,
+                  decoration: const InputDecoration(
+                    labelText: "Ubicación existente",
+                    helperText: "Selecciona una ubicación ya creada",
+                  ),
+                  items: ubicacionesEntries
+                      .map(
+                        (e) => DropdownMenuItem<int>(
+                          value: e.key,
+                          child: Text('${e.value} (ID ${e.key})'),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedUbicacionId = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 10),
+
                 TextFormField(
                   controller: _seccionCtrl,
                   decoration: const InputDecoration(

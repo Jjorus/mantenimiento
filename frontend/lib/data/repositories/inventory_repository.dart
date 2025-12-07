@@ -1,6 +1,7 @@
 import 'dart:io';
 import '../datasources/inventory_remote_ds.dart';
 import '../models/equipo_model.dart';
+import '../models/ubicacion_model.dart'; // <--- NUEVO
 
 class InventoryRepository {
   final InventoryRemoteDataSource _remoteDs;
@@ -14,6 +15,26 @@ class InventoryRepository {
   Future<List<EquipoModel>> buscarEquipos({String? query}) =>
       _remoteDs.getEquipos(query: query);
 
+  // Listar ubicaciones para poder obtener el nombre
+  Future<List<UbicacionModel>> listarUbicaciones() =>
+      _remoteDs.getUbicaciones();
+
+    // Crear ubicación (wrapper de datasource)
+  Future<UbicacionModel> crearUbicacion({
+    required String nombre,
+    int? seccionId,
+    String tipo = 'OTRO',
+    int? usuarioId,
+  }) {
+    return _remoteDs.crearUbicacion(
+      nombre: nombre,
+      seccionId: seccionId,
+      tipo: tipo,
+      usuarioId: usuarioId,
+    );
+  }
+   
+
   // Crear equipo
   Future<void> crearEquipo({
     required String identidad,
@@ -24,47 +45,45 @@ class InventoryRepository {
     int? seccionId,
     int? ubicacionId,
     String? notas,
-  }) {
-    final data = <String, dynamic>{
-      'identidad': identidad,
-      'tipo': tipo,
-      'estado': estado,
-      if (numeroSerie != null && numeroSerie.isNotEmpty)
-        'numero_serie': numeroSerie,
-      if (nfcTag != null && nfcTag.isNotEmpty) 'nfc_tag': nfcTag,
-      if (seccionId != null) 'seccion_id': seccionId,
-      if (ubicacionId != null) 'ubicacion_id': ubicacionId,
-      if (notas != null && notas.isNotEmpty) 'notas': notas,
-    };
-    return _remoteDs.createEquipo(data);
-  }
+  }) =>
+      _remoteDs.createEquipo(
+        identidad: identidad,
+        numeroSerie: numeroSerie,
+        tipo: tipo,
+        estado: estado,
+        nfcTag: nfcTag,
+        seccionId: seccionId,
+        ubicacionId: ubicacionId,
+        notas: notas,
+      );
 
-  // Actualizar ficha de equipo
-  Future<void> actualizarEquipo({
-    required int id,
-    String? identidad,
-    String? numeroSerie,
-    String? tipo,
-    String? estado,
-    String? nfcTag,
-    int? seccionId,
-    int? ubicacionId,
-    String? notas,
-  }) {
-    return _remoteDs.updateEquipo(
-      id,
-      identidad: identidad,
-      numeroSerie: numeroSerie,
-      tipo: tipo,
-      estado: estado,
-      nfcTag: nfcTag,
-      seccionId: seccionId,
-      ubicacionId: ubicacionId,
-      notas: notas,
-    );
-  }
+  // Actualizar equipo
+ Future<void> actualizarEquipo({
+  required int id,
+  String? identidad,
+  String? numeroSerie,
+  String? tipo,
+  String? estado,
+  String? nfcTag,
+  int? seccionId,
+  int? ubicacionId,
+  String? notas,
+}) {
+  return _remoteDs.updateEquipo(
+    id,
+    identidad: identidad,
+    numeroSerie: numeroSerie,
+    tipo: tipo,
+    estado: estado,
+    nfcTag: nfcTag,
+    seccionId: seccionId,
+    ubicacionId: ubicacionId,
+    notas: notas,
+  );
+}
 
-  // Atajo para notas
+
+  // Actualizar solo notas
   Future<void> actualizarNotas(int id, String notas) =>
       _remoteDs.updateEquipo(id, notas: notas);
 
@@ -80,4 +99,7 @@ class InventoryRepository {
 
   Future<void> eliminarAdjunto(int equipoId, int adjuntoId) =>
       _remoteDs.deleteAdjuntoEquipo(equipoId, adjuntoId);
+
+  Future<void> eliminarEquipo(int id) => _remoteDs.deleteEquipo(id);
+
 }

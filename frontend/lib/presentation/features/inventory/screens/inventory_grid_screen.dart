@@ -16,7 +16,7 @@ class InventoryGridScreen extends StatefulWidget {
 }
 
 class _InventoryGridScreenState extends State<InventoryGridScreen> {
-  late final List<PlutoColumn> columns;
+  late List<PlutoColumn> columns;
   bool _isFirstLoad = true;
 
   @override
@@ -32,7 +32,11 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
       PlutoColumn(title: 'Identidad', field: 'identidad', type: PlutoColumnType.text()),
       PlutoColumn(title: 'N. Serie', field: 'serial', type: PlutoColumnType.text()),
       PlutoColumn(title: 'Tipo', field: 'tipo', type: PlutoColumnType.text(), width: 120),
-      PlutoColumn(title: 'Estado', field: 'estado', type: PlutoColumnType.text(), width: 150,
+      PlutoColumn(
+        title: 'Estado',
+        field: 'estado',
+        type: PlutoColumnType.text(),
+        width: 150,
         renderer: (rendererContext) {
           final val = rendererContext.cell.value.toString();
           Color color = Colors.grey;
@@ -47,11 +51,24 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
               borderRadius: BorderRadius.circular(4),
               border: Border.all(color: color.withOpacity(0.5)),
             ),
-            child: Text(val, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
+            child: Text(
+              val,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
           );
         },
       ),
-      PlutoColumn(title: 'Ubicación ID', field: 'ubicacion', type: PlutoColumnType.number(), width: 100),
+      // NUEVO: Ubicación por nombre, no ID
+      PlutoColumn(
+        title: 'Ubicación',
+        field: 'ubicacion',
+        type: PlutoColumnType.text(),
+        width: 180,
+      ),
       PlutoColumn(
         title: 'Historial',
         field: 'history',
@@ -60,6 +77,45 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
         enableSorting: false,
         enableFilterMenuItem: false,
         renderer: (_) => const Icon(Icons.history, color: Colors.blue),
+      ),
+      PlutoColumn(
+        title: 'Acciones',
+        field: 'actions',
+        type: PlutoColumnType.text(),
+        width: 120,
+        enableSorting: false,
+        enableFilterMenuItem: false,
+        renderer: (ctx) {
+          final row = ctx.row;
+          final id = row.cells['id']!.value as int;
+
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                padding: EdgeInsets.zero,
+                iconSize: 18,
+                tooltip: 'Editar ficha',
+                icon: const Icon(Icons.edit),
+                onPressed: () {
+                  final state = context.read<InventoryCubit>().state;
+                  try {
+                    final equipo =
+                        state.equipos.firstWhere((e) => e.id == id);
+                    _openDetailDialog(equipo);
+                  } catch (_) {}
+                },
+              ),
+              IconButton(
+                padding: EdgeInsets.zero,
+                iconSize: 18,
+                tooltip: 'Eliminar equipo',
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: () => _confirmDeleteEquipo(id),
+              ),
+            ],
+          );
+        },
       ),
     ];
   }
@@ -78,22 +134,14 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Inventario Global"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: "Recargar datos",
-            onPressed: () => context.read<InventoryCubit>().loadInventory(),
-          ),
-        ],
-      ),
       body: BlocConsumer<InventoryCubit, InventoryState>(
         listener: (context, state) {
           if (state.status == InventoryStatus.failure) {
-            if (_isFirstLoad) setState(() => _isFirstLoad = false);
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(state.errorMessage ?? "Error desconocido"), backgroundColor: Colors.red),
+              SnackBar(
+                content: Text(state.errorMessage ?? "Error desconocido"),
+                backgroundColor: Colors.red,
+              ),
             );
           }
         },
@@ -104,12 +152,12 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
           if (state.status == InventoryStatus.success) _isFirstLoad = false;
 
           if (state.equipos.isEmpty && !_isFirstLoad) {
-             return const Center(child: Text("No hay equipos registrados"));
+            return const Center(child: Text("No hay equipos registrados"));
           }
 
           return PlutoGrid(
             columns: columns,
-            rows: state.equipos.map((e) => _buildRow(e)).toList(),
+            rows: state.equipos.map((e) => _buildRow(e, state)).toList(),
             onLoaded: (PlutoGridOnLoadedEvent event) {
               event.stateManager.setShowColumnFilter(true);
             },
@@ -124,7 +172,7 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
               final row = event.row;
               if (row != null && event.cell?.column.field == 'history') {
                 final id = row.cells['id']!.value;
-                context.push('/equipment/$id'); 
+                context.push('/equipment/$id');
               }
             },
             configuration: const PlutoGridConfiguration(
@@ -132,7 +180,9 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
                 gridBorderColor: Colors.transparent,
                 gridBorderRadius: BorderRadius.zero,
               ),
-              columnSize: PlutoGridColumnSizeConfig(autoSizeMode: PlutoAutoSizeMode.scale),
+              columnSize: PlutoGridColumnSizeConfig(
+                autoSizeMode: PlutoAutoSizeMode.scale,
+              ),
             ),
           );
         },
@@ -140,7 +190,12 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
     );
   }
 
-  PlutoRow _buildRow(EquipoModel e) {
+  PlutoRow _buildRow(EquipoModel e, InventoryState state) {
+    final ubicId = e.ubicacionId;
+    final ubicNombre = ubicId != null
+        ? (state.ubicaciones[ubicId] ?? 'ID $ubicId')
+        : '-';
+
     return PlutoRow(
       cells: {
         'id': PlutoCell(value: e.id),
@@ -148,9 +203,59 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
         'serial': PlutoCell(value: e.numeroSerie ?? '-'),
         'tipo': PlutoCell(value: e.tipo),
         'estado': PlutoCell(value: e.estado),
-        'ubicacion': PlutoCell(value: e.ubicacionId ?? 0),
+        'ubicacion': PlutoCell(value: ubicNombre),
         'history': PlutoCell(value: 'ver'),
+         'actions': PlutoCell(value: 'actions'),
       },
     );
+  }
+
+  Future<void> _confirmDeleteEquipo(int id) async {
+    final invCubit = context.read<InventoryCubit>();
+    final state = invCubit.state;
+
+    final equipo =
+        state.equipos.firstWhere((e) => e.id == id, orElse: () => throw Exception());
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar equipo'),
+        content: Text(
+          '¿Seguro que quieres eliminar el equipo "${equipo.identidad ?? equipo.id}"?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await invCubit.eliminarEquipo(id);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Equipo eliminado')),
+        );
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error eliminando equipo'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }

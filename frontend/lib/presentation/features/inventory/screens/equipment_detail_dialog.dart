@@ -1,4 +1,6 @@
+// frontend/lib/presentation/features/inventory/screens/equipment_detail_dialog.dart
 import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -8,6 +10,7 @@ import '../../../../data/repositories/inventory_repository.dart';
 import '../../../../logic/inventory_cubit/inventory_cubit.dart';
 import '../../../../core/utils/file_downloader.dart';
 import '../../../shared/widgets/files/universal_file_viewer.dart';
+import '../../admin/widgets/equipment_form_dialog.dart';
 
 class EquipmentDetailDialog extends StatefulWidget {
   final EquipoModel equipo;
@@ -55,6 +58,7 @@ class _EquipmentDetailDialogState extends State<EquipmentDetailDialog> {
       await context
           .read<InventoryCubit>()
           .guardarNotas(widget.equipo.id, _notesController.text);
+
       if (!mounted) return;
       setState(() {
         _isSavingNotes = false;
@@ -209,6 +213,20 @@ class _EquipmentDetailDialogState extends State<EquipmentDetailDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // Leemos nombre de ubicación desde InventoryCubit
+    final inventoryState = context.watch<InventoryCubit>().state;
+    final ubicId = widget.equipo.ubicacionId;
+    final ubicacionNombre = ubicId != null
+        ? (inventoryState.ubicaciones[ubicId] ?? 'ID $ubicId')
+        : '-';
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final valueTextColor = isDark ? Colors.white : Colors.black87;
+    final labelColor = isDark ? Colors.grey[300]! : Colors.grey;
+    final notesBackgroundColor = _isEditingNotes
+        ? (isDark ? Colors.grey[900] : Colors.white)
+        : (isDark ? Colors.grey[850] : Colors.grey.shade50);
+
     Widget infoRow(String label, String val) => Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Row(
@@ -217,18 +235,18 @@ class _EquipmentDetailDialogState extends State<EquipmentDetailDialog> {
                 width: 120,
                 child: Text(
                   label,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    color: Colors.grey,
+                    color: labelColor,
                   ),
                 ),
               ),
               Expanded(
                 child: SelectableText(
                   val,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w500,
-                    color: Colors.black87,
+                    color: valueTextColor,
                   ),
                 ),
               ),
@@ -259,6 +277,22 @@ class _EquipmentDetailDialogState extends State<EquipmentDetailDialog> {
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    showDialog(
+                      context: context,
+                      builder: (_) => BlocProvider.value(
+                        value: context.read<InventoryCubit>(),
+                        child: EquipmentFormDialog(equipo: widget.equipo),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.edit),
+                  label: const Text('Editar ficha'),
+                ),
+                const SizedBox(width: 8),
                 IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: () => Navigator.pop(context),
@@ -276,16 +310,14 @@ class _EquipmentDetailDialogState extends State<EquipmentDetailDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         infoRow('ID', widget.equipo.id.toString()),
-                        infoRow('Identidad', _safeStr(widget.equipo.identidad)),
                         infoRow(
-                            'N. Serie', _safeStr(widget.equipo.numeroSerie)),
+                            'Identidad', _safeStr(widget.equipo.identidad)),
+                        infoRow('N. Serie',
+                            _safeStr(widget.equipo.numeroSerie)),
                         infoRow('Tipo', widget.equipo.tipo),
                         infoRow('Estado', widget.equipo.estado),
                         infoRow('NFC', _safeStr(widget.equipo.nfcTag)),
-                        infoRow(
-                          'Ubicación',
-                          widget.equipo.ubicacionId?.toString() ?? '-',
-                        ),
+                        infoRow('Ubicación', ubicacionNombre),
                         infoRow(
                           'Sección',
                           widget.equipo.seccionId?.toString() ?? '-',
@@ -295,7 +327,6 @@ class _EquipmentDetailDialogState extends State<EquipmentDetailDialog> {
                           'Notas',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: Colors.grey,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -308,9 +339,7 @@ class _EquipmentDetailDialogState extends State<EquipmentDetailDialog> {
                                     : Colors.grey.shade300,
                               ),
                               borderRadius: BorderRadius.circular(8),
-                              color: _isEditingNotes
-                                  ? Colors.white
-                                  : Colors.grey.shade50,
+                              color: notesBackgroundColor,
                             ),
                             child: TextField(
                               controller: _notesController,
@@ -318,6 +347,10 @@ class _EquipmentDetailDialogState extends State<EquipmentDetailDialog> {
                               maxLines: null,
                               expands: true,
                               textAlignVertical: TextAlignVertical.top,
+                              style: TextStyle(
+                                color:
+                                    isDark ? Colors.white : Colors.black87,
+                              ),
                               decoration: const InputDecoration(
                                 border: InputBorder.none,
                                 contentPadding: EdgeInsets.all(12),
@@ -412,7 +445,9 @@ class _EquipmentDetailDialogState extends State<EquipmentDetailDialog> {
                                   final url = f['url']!;
                                   final fileName = f['fileName']!;
                                   final idAdjunto =
-                                      int.tryParse(url.split('/').last) ?? 0;
+                                      int.tryParse(url.split('/').last) ??
+                                          0;
+
                                   return ListTile(
                                     title: Text(fileName),
                                     trailing: Row(

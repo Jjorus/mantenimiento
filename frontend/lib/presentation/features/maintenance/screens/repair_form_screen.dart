@@ -132,7 +132,7 @@ class _RepairFormScreenState extends State<RepairFormScreen> {
                             )
                           else
                             DropdownButtonFormField<IncidenciaModel>(
-                              value: _selectedIncidencia,
+                              initialValue: _selectedIncidencia,
                               decoration: const InputDecoration(
                                 border: OutlineInputBorder(),
                                 contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
