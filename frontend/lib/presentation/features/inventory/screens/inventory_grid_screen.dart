@@ -30,6 +30,9 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
   bool _isFirstLoad = true;
   late final StorageService _storageService;
   Timer? _saveDebounce;
+  
+  // --- NUEVO: Referencia al manejador de estado de la tabla ---
+  PlutoGridStateManager? _stateManager;
 
   @override
   void initState() {
@@ -131,7 +134,11 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
                           value: context.read<InventoryCubit>(),
                           child: EquipmentFormDialog(equipo: equipo),
                         ),
-                      );
+                      ).then((_) {
+                        if (mounted) {
+                           context.read<InventoryCubit>().loadInventory();
+                        }
+                      });
                     } catch (_) {}
                   },
                 ),
@@ -162,7 +169,11 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
           isAdminMode: widget.isAdminMode
         ),
       ),
-    );
+    ).then((_) {
+      if (mounted) {
+        context.read<InventoryCubit>().loadInventory();
+      }
+    });
   }
 
   @override
@@ -178,6 +189,16 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
               ),
             );
           }
+          
+          // --- CORRECCIÓN: Actualizar filas manualmente si la tabla ya está cargada ---
+          if (state.status == InventoryStatus.success && _stateManager != null) {
+            final newRows = state.equipos.map((e) => _buildRow(e, state)).toList();
+            
+            // PlutoGrid ignora el parámetro 'rows' del constructor en reconstrucciones.
+            // Hay que usar el StateManager para forzar la actualización de datos.
+            _stateManager!.removeAllRows();
+            _stateManager!.appendRows(newRows);
+          }
         },
         builder: (context, state) {
           if (state.status == InventoryStatus.loading && _isFirstLoad) {
@@ -191,14 +212,18 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
 
           return PlutoGrid(
             columns: columns,
+            // Las filas iniciales
             rows: state.equipos.map((e) => _buildRow(e, state)).toList(),
             onLoaded: (PlutoGridOnLoadedEvent event) {
+              // --- Guardamos la referencia para usarla en el listener ---
+              _stateManager = event.stateManager;
+              
               event.stateManager.setShowColumnFilter(true);
               
               // Cargar estado guardado
               _restoreGridState(event.stateManager);
               
-              // Listener para guardar cambios (debounce reducido a 300ms)
+              // Listener para guardar cambios
               event.stateManager.addListener(() {
                 _saveGridState(event.stateManager);
               });

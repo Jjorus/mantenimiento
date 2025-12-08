@@ -295,7 +295,11 @@ class _EquipmentDetailDialogState extends State<EquipmentDetailDialog> {
                           value: context.read<InventoryCubit>(),
                           child: EquipmentFormDialog(equipo: widget.equipo),
                         ),
-                      );
+                      ).then((_) {                       
+                        if (context.mounted) {
+                           context.read<InventoryCubit>().loadInventory();
+                        }
+                      });
                     },
                     icon: const Icon(Icons.edit),
                     label: const Text('Editar ficha'),

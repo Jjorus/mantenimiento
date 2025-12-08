@@ -14,7 +14,12 @@ class EquipmentMasterTab extends StatelessWidget {
         value: context.read<InventoryCubit>(),
         child: const EquipmentFormDialog(),
       ),
-    );
+    ).then((_) {
+      // CORRECCIÓN: Usar 'mounted' para refrescar de forma segura
+      if (context.mounted) {
+        context.read<InventoryCubit>().loadInventory();
+      }
+    });
   }
 
   @override

@@ -98,7 +98,8 @@ class EquipoDetailScreen extends StatelessWidget {
       icon = Icons.build;
       color = Colors.green;
       title = "Reparación: ${item.titulo}";
-      subtitle = "Coste: ${item.coste ?? 0}€";
+      // CORRECCIÓN: Eliminado '?? 0' y añadido formato de decimales
+      subtitle = "Coste: ${item.coste.toStringAsFixed(2)}€";
       dateStr = item.fechaInicio ?? "";
     } else {
       return const SizedBox.shrink();
