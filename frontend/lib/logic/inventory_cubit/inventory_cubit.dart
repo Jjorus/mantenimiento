@@ -181,12 +181,21 @@ class InventoryCubit extends Cubit<InventoryState> {
     }
   }
 
-    Future<void> eliminarEquipo(int id) async {
+  Future<void> eliminarEquipo(int id) async {
     try {
       await _repository.eliminarEquipo(id);
       await loadInventory();
     } catch (_) {
       throw Exception('Error eliminando equipo');
+    }
+  }
+
+  Future<void> eliminarUbicacion(int id) async {
+    try {
+      await _repository.eliminarUbicacion(id);
+      await loadInventory(); // Recargamos para actualizar la lista
+    } catch (_) {
+      throw Exception('Error eliminando ubicación. Asegúrate de que no tenga equipos asignados.');
     }
   }
 

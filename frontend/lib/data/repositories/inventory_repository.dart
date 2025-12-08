@@ -111,4 +111,6 @@ class InventoryRepository {
       _remoteDs.deleteAdjuntoEquipo(equipoId, adjuntoId);
 
   Future<void> eliminarEquipo(int id) => _remoteDs.deleteEquipo(id);
+
+  Future<void> eliminarUbicacion(int id) => _remoteDs.deleteUbicacion(id);
 }
