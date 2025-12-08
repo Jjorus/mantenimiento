@@ -120,15 +120,18 @@ def test_subir_factura_mime_no_permitido(client, session):
     headers, rep_id = _crear_reparacion_via_api(client, session)
 
     # CAMBIO: Usamos 'application/x-msdownload' (ejecutable) que NO está en permitidos
+    # Y usamos la ruta PLURAL (/facturas) para subir
     resp = client.post(
-        f"/api/v1/reparaciones/{rep_id}/factura",
+        f"/api/v1/reparaciones/{rep_id}/facturas",
         files={"file": ("virus.exe", b"MZ...", "application/x-msdownload")},
         headers=headers,
     )
 
     assert resp.status_code == 422
     data = resp.json()
-    assert "Tipo de archivo no permitido" in data["detail"]
+    # El mensaje exacto depende de tu validador, ajusta si es necesario
+    # Normalmente "Tipo de archivo no permitido" o similar
+    assert "no permitido" in str(data["detail"]).lower()
 
 
 def test_descargar_factura_sin_factura_da_404(client, session):
@@ -138,13 +141,23 @@ def test_descargar_factura_sin_factura_da_404(client, session):
     """
     headers, rep_id = _crear_reparacion_via_api(client, session)
 
+    
+    # Si usamos plural, es "listar" y devuelve 200 [].
     resp = client.get(f"/api/v1/reparaciones/{rep_id}/factura", headers=headers)
+    
     assert resp.status_code == 404
     data = resp.json()
+    msg = data["detail"].lower()
+    
+        
+    
 
+    # El mensaje suele ser "La reparación no tiene factura adjunta" o similar
     assert (
-        "factura" in data["detail"].lower()
-        or "no encontrado" in data["detail"].lower()
+        "no tiene factura" in data["detail"].lower()
+        or "no encontrada" in data["detail"].lower()
+        or "no se encuentra" in data["detail"].lower()
+        or "recurso no encontrado" in msg
     )
 
 

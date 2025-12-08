@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from .usuario import Usuario
     from .incidencia import Incidencia
     from .reparacion_factura import ReparacionFactura
+    from .reparacion_gasto import ReparacionGasto
 
 
 class Reparacion(SQLModel, table=True):
@@ -277,3 +278,5 @@ class Reparacion(SQLModel, table=True):
         self.fecha_fin = None
         self.cerrada_por_id = None
         self.usuario_modificador_id = usuario_id
+
+    gastos: list["ReparacionGasto"] = Relationship(back_populates="reparacion", sa_relationship_kwargs={"cascade": "all, delete-orphan"})

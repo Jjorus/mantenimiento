@@ -24,6 +24,7 @@ from app.core.file_manager import FileManager
 from app.models.equipo import Equipo
 from app.models.reparacion import Reparacion
 from app.models.reparacion_factura import ReparacionFactura
+from app.models.reparacion_gasto import ReparacionGasto
 
 router = APIRouter(prefix="/reparaciones", tags=["reparaciones"])
 
@@ -572,3 +573,98 @@ def eliminar_factura_concreta(
     db.add(rep)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+# --- GESTIÓN DE GASTOS ---
+
+@router.get("/{reparacion_id}/gastos", response_model=list[ReparacionGasto])
+def listar_gastos(
+    reparacion_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(current_user),
+):
+    """Listar todos los gastos de una reparación"""
+    statement = select(ReparacionGasto).where(ReparacionGasto.reparacion_id == reparacion_id)
+    results = db.exec(statement).all()
+    return results
+
+@router.post("/{reparacion_id}/gastos", response_model=Reparacion)
+def agregar_gasto(
+    reparacion_id: int,
+    gasto_in: ReparacionGasto,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("MANTENIMIENTO", "ADMIN")),
+):
+    """
+    Agrega un gasto y RECALCULA automáticamente los totales de la reparación.
+    Devuelve la Reparación actualizada.
+    """
+    # 1. Verificar reparación
+    reparacion = db.get(Reparacion, reparacion_id)
+    if not reparacion:
+        raise HTTPException(status_code=404, detail="Reparación no encontrada")
+
+    # 2. Guardar el gasto
+    gasto_in.reparacion_id = reparacion_id  # Asegurar ID correcto
+    db.add(gasto_in)
+    db.commit()
+    db.refresh(gasto_in)
+
+    # 3. Recalcular totales en la reparación padre
+    _recalcular_costes_reparacion(db, reparacion)
+    
+    db.refresh(reparacion)
+    return reparacion
+
+@router.delete("/{reparacion_id}/gastos/{gasto_id}", response_model=Reparacion)
+def eliminar_gasto(
+    reparacion_id: int,
+    gasto_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("MANTENIMIENTO", "ADMIN")),
+):
+    """Borra un gasto y recalcula totales."""
+    gasto = db.get(ReparacionGasto, gasto_id)
+    if not gasto or gasto.reparacion_id != reparacion_id:
+        raise HTTPException(status_code=404, detail="Gasto no encontrado")
+
+    db.delete(gasto)
+    db.commit()
+
+    # Recalcular
+    reparacion = db.get(Reparacion, reparacion_id)
+    _recalcular_costes_reparacion(db, reparacion)
+    
+    db.refresh(reparacion)
+    return reparacion
+
+def _recalcular_costes_reparacion(db: Session, reparacion: Reparacion):
+    """Función auxiliar para sumar gastos y actualizar la reparación"""
+    # Traer todos los gastos frescos
+    statement = select(ReparacionGasto).where(ReparacionGasto.reparacion_id == reparacion.id)
+    gastos = db.exec(statement).all()
+
+    # Resetear contadores
+    mat = 0.0
+    mo = 0.0
+    otros = 0.0
+
+    for g in gastos:
+        if g.tipo == "MATERIALES":
+            mat += g.importe
+        elif g.tipo == "MANO_OBRA":
+            mo += g.importe
+        else:
+            otros += g.importe
+
+    # Actualizar campos en reparación
+    reparacion.coste_materiales = mat
+    reparacion.coste_mano_obra = mo
+    reparacion.coste_otros = otros
+    
+    # El campo 'coste' (total) se suele calcular automáticamente si es property, 
+    # pero si es un campo DB, hay que sumarlo explícitamente:
+    # (Nota: en tu modelo es un @computed_field, pero por si acaso lo guardas)
+    # reparacion.coste = mat + mo + otros 
+
+    db.add(reparacion)
+    db.commit()

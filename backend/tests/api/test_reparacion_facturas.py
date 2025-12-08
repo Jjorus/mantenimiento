@@ -6,14 +6,14 @@ from sqlmodel import Session
 from app.models.equipo import Equipo
 from app.models.incidencia import Incidencia
 from app.models.reparacion import Reparacion
-from app.core.file_manager import FileManager # <--- IMPORTANTE: Importamos el nuevo core
+from app.core.file_manager import FileManager
 from tests.utils import (
     create_user,
     create_random_equipo,
     get_auth_headers,
 )
 
-# --- FIXTURE DE LIMPIEZA (LO NUEVO) ---
+# --- FIXTURE DE LIMPIEZA ---
 @pytest.fixture(autouse=True)
 def clean_files(tmp_path):
     """
@@ -27,7 +27,7 @@ def clean_files(tmp_path):
     FileManager.BASE_DIR = original_base
 
 
-# --- HELPER (RECUPERADO) ---
+# --- HELPER ---
 def _crear_reparacion_via_api(client: TestClient, session: Session):
     """Crea equipo, incidencia y reparación vía API y devuelve (headers, rep_id)."""
     mant = create_user(session, role="MANTENIMIENTO")
@@ -67,7 +67,7 @@ def _crear_reparacion_via_api(client: TestClient, session: Session):
     return headers, rep_id
 
 
-# --- TUS TESTS ORIGINALES (CONSERVADOS) ---
+# --- TESTS ---
 
 def test_subir_y_listar_facturas_reparacion(client, session):
     """
@@ -80,8 +80,9 @@ def test_subir_y_listar_facturas_reparacion(client, session):
     files = {
         "file": ("factura1.pdf", b"PDF-DATA-1", "application/pdf"),
     }
+    # CORRECCIÓN: Ruta en plural
     resp = client.post(
-        f"/api/v1/reparaciones/{rep_id}/factura",
+        f"/api/v1/reparaciones/{rep_id}/facturas",
         files=files,
         headers=headers,
     )
@@ -112,15 +113,17 @@ def test_subir_segunda_factura_actualiza_principal(client, session):
     headers, rep_id = _crear_reparacion_via_api(client, session)
 
     # Primera factura
+    # CORRECCIÓN: Ruta en plural
     resp1 = client.post(
-        f"/api/v1/reparaciones/{rep_id}/factura",
+        f"/api/v1/reparaciones/{rep_id}/facturas",
         files={"file": ("f1.pdf", b"PDF1", "application/pdf")},
         headers=headers,
     )
     assert resp1.status_code == 200
     # Segunda factura
+    # CORRECCIÓN: Ruta en plural
     resp2 = client.post(
-        f"/api/v1/reparaciones/{rep_id}/factura",
+        f"/api/v1/reparaciones/{rep_id}/facturas",
         files={"file": ("f2.pdf", b"PDF2", "application/pdf")},
         headers=headers,
     )
@@ -156,12 +159,15 @@ def test_descargar_factura_principal(client, session):
     """
     headers, rep_id = _crear_reparacion_via_api(client, session)
 
+    # CORRECCIÓN: Ruta en plural para subir
     client.post(
-        f"/api/v1/reparaciones/{rep_id}/factura",
+        f"/api/v1/reparaciones/{rep_id}/facturas",
         files={"file": ("factura_main.pdf", b"PDF-MAIN", "application/pdf")},
         headers=headers,
     )
 
+    # La descarga de la principal sigue siendo en SINGULAR según routes_reparaciones.py
+    # (revisa routes_reparaciones.py -> @router.get("/{reparacion_id}/factura")
     resp = client.get(
         f"/api/v1/reparaciones/{rep_id}/factura",
         headers=headers,
@@ -181,13 +187,14 @@ def test_eliminar_factura_reasigna_principal_o_limpia(client, session):
     headers, rep_id = _crear_reparacion_via_api(client, session)
 
     # Subir dos facturas
+    # CORRECCIÓN: Ruta en plural
     client.post(
-        f"/api/v1/reparaciones/{rep_id}/factura",
+        f"/api/v1/reparaciones/{rep_id}/facturas",
         files={"file": ("f1.pdf", b"PDF1", "application/pdf")},
         headers=headers,
     )
     client.post(
-        f"/api/v1/reparaciones/{rep_id}/factura",
+        f"/api/v1/reparaciones/{rep_id}/facturas",
         files={"file": ("f2.pdf", b"PDF2", "application/pdf")},
         headers=headers,
     )
@@ -202,6 +209,7 @@ def test_eliminar_factura_reasigna_principal_o_limpia(client, session):
     secundaria = [f for f in facturas if not f["es_principal"]][0]
 
     # Borrar la principal
+    # CORRECCIÓN: Ruta en plural /facturas/{id}
     resp_del = client.delete(
         f"/api/v1/reparaciones/{rep_id}/facturas/{principal['id']}",
         headers=headers,
@@ -219,6 +227,7 @@ def test_eliminar_factura_reasigna_principal_o_limpia(client, session):
     assert facturas2[0]["es_principal"] is True
 
     # Ahora borramos la última
+    # CORRECCIÓN: Ruta en plural
     resp_del2 = client.delete(
         f"/api/v1/reparaciones/{rep_id}/facturas/{secundaria['id']}",
         headers=headers,
@@ -270,8 +279,9 @@ def test_subir_factura_requiere_permiso_mantenimiento_o_admin(client, session):
     op = create_user(session, role="OPERARIO")
     op_headers = get_auth_headers(client, op.username)
 
+    # CORRECCIÓN: Ruta en plural
     resp = client.post(
-        f"/api/v1/reparaciones/{rep_id}/factura",
+        f"/api/v1/reparaciones/{rep_id}/facturas",
         files={"file": ("forbidden.pdf", b"XXX", "application/pdf")},
         headers=op_headers,
     )

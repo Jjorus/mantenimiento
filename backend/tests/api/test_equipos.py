@@ -27,7 +27,8 @@ def test_crud_equipo_admin(client, session):
     eq_id = data["id"]
     
     # Verificaciones
-    assert data["identidad"] == "eq-admin-01"  # Se normaliza a minúsculas
+    assert data["identidad"] == "EQ-ADMIN-01" # Debe respetar la escritura original
+    assert data["numero_serie"] == "SN-ADMIN-01"
     assert data["notas"] == "Nota inicial de prueba para inventario" # <--- Verificamos persistencia
 
     # 2. Leer individual
