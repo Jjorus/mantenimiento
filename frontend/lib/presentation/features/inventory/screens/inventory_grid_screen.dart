@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pluto_grid/pluto_grid.dart';
-import 'package:go_router/go_router.dart'; 
+import 'package:go_router/go_router.dart';
+import 'dart:convert';
+import 'dart:async';
 
 import '../../../../logic/inventory_cubit/inventory_cubit.dart';
 import '../../../../logic/inventory_cubit/inventory_state.dart';
 import '../../../../data/models/equipo_model.dart';
-import 'equipment_detail_dialog.dart'; // IMPORTANTE
+import '../../../../core/services/storage_service.dart';
+import '../../admin/widgets/equipment_form_dialog.dart';
+import 'equipment_detail_dialog.dart';
 
 class InventoryGridScreen extends StatefulWidget {
   const InventoryGridScreen({super.key});
@@ -18,17 +22,26 @@ class InventoryGridScreen extends StatefulWidget {
 class _InventoryGridScreenState extends State<InventoryGridScreen> {
   late List<PlutoColumn> columns;
   bool _isFirstLoad = true;
+  late final StorageService _storageService;
+  Timer? _saveDebounce;
 
   @override
   void initState() {
     super.initState();
+    _storageService = const StorageService();
     context.read<InventoryCubit>().loadInventory();
     _setupColumns();
   }
 
+  @override
+  void dispose() {
+    _saveDebounce?.cancel();
+    super.dispose();
+  }
+
   void _setupColumns() {
     columns = [
-      PlutoColumn(title: 'ID', field: 'id', type: PlutoColumnType.number(), width: 80, readOnly: true),
+      PlutoColumn(title: 'ID', field: 'id', type: PlutoColumnType.number(), width: 50, minWidth: 40, readOnly: true),
       PlutoColumn(title: 'Identidad', field: 'identidad', type: PlutoColumnType.text()),
       PlutoColumn(title: 'N. Serie', field: 'serial', type: PlutoColumnType.text()),
       PlutoColumn(title: 'Tipo', field: 'tipo', type: PlutoColumnType.text(), width: 120),
@@ -62,7 +75,6 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
           );
         },
       ),
-      // NUEVO: Ubicación por nombre, no ID
       PlutoColumn(
         title: 'Ubicación',
         field: 'ubicacion',
@@ -73,7 +85,7 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
         title: 'Historial',
         field: 'history',
         type: PlutoColumnType.text(),
-        width: 80,
+        width: 140,
         enableSorting: false,
         enableFilterMenuItem: false,
         renderer: (_) => const Icon(Icons.history, color: Colors.blue),
@@ -100,9 +112,14 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
                 onPressed: () {
                   final state = context.read<InventoryCubit>().state;
                   try {
-                    final equipo =
-                        state.equipos.firstWhere((e) => e.id == id);
-                    _openDetailDialog(equipo);
+                    final equipo = state.equipos.firstWhere((e) => e.id == id);
+                    showDialog(
+                      context: context,
+                      builder: (_) => BlocProvider.value(
+                        value: context.read<InventoryCubit>(),
+                        child: EquipmentFormDialog(equipo: equipo),
+                      ),
+                    );
                   } catch (_) {}
                 },
               ),
@@ -160,6 +177,14 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
             rows: state.equipos.map((e) => _buildRow(e, state)).toList(),
             onLoaded: (PlutoGridOnLoadedEvent event) {
               event.stateManager.setShowColumnFilter(true);
+              
+              // Cargar estado guardado
+              _restoreGridState(event.stateManager);
+              
+              // Listener para guardar cambios (debounce reducido a 300ms)
+              event.stateManager.addListener(() {
+                _saveGridState(event.stateManager);
+              });
             },
             onRowDoubleTap: (event) {
               final id = event.row.cells['id']!.value as int;
@@ -256,6 +281,73 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
           ),
         );
       }
+    }
+  }
+
+  // --- MÉTODOS DE PERSISTENCIA CORREGIDOS ---
+
+  Future<void> _saveGridState(PlutoGridStateManager stateManager) async {
+    if (_saveDebounce?.isActive ?? false) _saveDebounce!.cancel();
+
+    // Reducido a 300ms para que se guarde más rápido
+    _saveDebounce = Timer(const Duration(milliseconds: 300), () async {
+      try {
+        final List<String> columnOrder = stateManager.columns.map((c) => c.field).toList();
+        final Map<String, double> columnWidths = {
+          for (var c in stateManager.columns) c.field: c.width
+        };
+
+        final data = jsonEncode({
+          'order': columnOrder,
+          'widths': columnWidths,
+        });
+
+        await _storageService.saveData('inventory_grid_config', data);
+        debugPrint("✅ Configuración de Inventario guardada: $data");
+      } catch (e) {
+        debugPrint("❌ Error guardando grid inventario: $e");
+      }
+    });
+  }
+
+  Future<void> _restoreGridState(PlutoGridStateManager stateManager) async {
+    final dataStr = await _storageService.readData('inventory_grid_config');
+    if (dataStr == null) return;
+
+    try {
+      final data = jsonDecode(dataStr);
+      final Map<String, dynamic> widths = data['widths'];
+      final List<dynamic> order = data['order'];
+
+      // 1. Restaurar ANCHOS (Usando asignación DIRECTA)
+      for (var col in stateManager.columns) {
+        if (widths.containsKey(col.field)) {
+          final double savedWidth = (widths[col.field] as num).toDouble();
+          // CORRECCIÓN: Asignamos directamente la propiedad width
+          col.width = savedWidth;
+        }
+      }
+
+      // 2. Restaurar ORDEN (Usando parámetros nombrados)
+      for (int i = 0; i < order.length; i++) {
+        final field = order[i];
+        final col = stateManager.columns.firstWhere(
+          (c) => c.field == field, 
+          orElse: () => stateManager.columns[0]
+        );
+        
+        final currentIndex = stateManager.columns.indexOf(col);
+        
+        if (currentIndex != i) {
+          final targetCol = stateManager.columns[i];
+          // CORRECCIÓN: Parámetros nombrados obligatorios
+          stateManager.moveColumn(column: col, targetColumn: targetCol);
+        }
+      }
+      debugPrint("✅ Configuración de Inventario restaurada correctamente");
+
+    } catch (e) {
+      debugPrint("❌ Error restaurando grid inventario: $e");
     }
   }
 }

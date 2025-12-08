@@ -1,7 +1,10 @@
+import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pluto_grid/pluto_grid.dart';
 
+import '../../../../core/services/storage_service.dart';
 import '../../../../logic/admin_cubit/admin_cubit.dart';
 import '../../../../logic/admin_cubit/admin_state.dart';
 import '../../../../logic/inventory_cubit/inventory_cubit.dart';
@@ -18,17 +21,21 @@ class UsersTab extends StatefulWidget {
 
 class _UsersTabState extends State<UsersTab> {
   late final List<PlutoColumn> columns;
+  late final StorageService _storageService;
+  Timer? _saveDebounce;
 
   @override
   void initState() {
     super.initState();
+    _storageService = const StorageService();
 
     columns = [
       PlutoColumn(
         title: 'ID',
         field: 'id',
         type: PlutoColumnType.number(),
-        width: 80,
+        width: 50,
+        minWidth: 40,
         readOnly: true,
       ),
       PlutoColumn(
@@ -73,7 +80,7 @@ class _UsersTabState extends State<UsersTab> {
         title: 'Acciones',
         field: 'actions',
         type: PlutoColumnType.text(),
-        width: 110,
+        width: 120,
         enableSorting: false,
         enableFilterMenuItem: false,
         renderer: (ctx) {
@@ -110,9 +117,13 @@ class _UsersTabState extends State<UsersTab> {
       ),
     ];
 
-    // Cargamos inventario para tener el mapa id → nombre de ubicaciones
-    // (el mismo que usa InventoryGridScreen)
     context.read<InventoryCubit>().loadInventory();
+  }
+
+  @override
+  void dispose() {
+    _saveDebounce?.cancel();
+    super.dispose();
   }
 
   void _openUserDialog({UserModel? user}) {
@@ -122,7 +133,7 @@ class _UsersTabState extends State<UsersTab> {
     );
   }
 
-    void _openDetailDialog(UserModel user) {
+  void _openDetailDialog(UserModel user) {
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -130,24 +141,85 @@ class _UsersTabState extends State<UsersTab> {
     );
   }
 
-
   void _openCreateDialog() {
     _openUserDialog();
   }
 
+  // --- MÉTODOS DE PERSISTENCIA CORREGIDOS ---
+
+  Future<void> _saveGridState(PlutoGridStateManager stateManager) async {
+    if (_saveDebounce?.isActive ?? false) _saveDebounce!.cancel();
+
+    _saveDebounce = Timer(const Duration(milliseconds: 300), () async {
+      try {
+        final List<String> columnOrder =
+            stateManager.columns.map((c) => c.field).toList();
+        final Map<String, double> columnWidths = {
+          for (var c in stateManager.columns) c.field: c.width
+        };
+
+        final data = jsonEncode({
+          'order': columnOrder,
+          'widths': columnWidths,
+        });
+
+        // OJO: Clave distinta para usuarios
+        await _storageService.saveData('users_grid_config', data);
+        debugPrint("✅ Configuración de Usuarios guardada: $data");
+      } catch (e) {
+        debugPrint("❌ Error guardando grid usuarios: $e");
+      }
+    });
+  }
+
+  Future<void> _restoreGridState(PlutoGridStateManager stateManager) async {
+    final dataStr = await _storageService.readData('users_grid_config');
+    if (dataStr == null) return;
+
+    try {
+      final data = jsonDecode(dataStr);
+      final Map<String, dynamic> widths = data['widths'];
+      final List<dynamic> order = data['order'];
+
+      // 1. Restaurar ANCHOS (Directo)
+      for (var col in stateManager.columns) {
+        if (widths.containsKey(col.field)) {
+          final double savedWidth = (widths[col.field] as num).toDouble();
+          col.width = savedWidth;
+        }
+      }
+
+      // 2. Restaurar ORDEN
+      for (int i = 0; i < order.length; i++) {
+        final field = order[i];
+        final col = stateManager.columns.firstWhere(
+            (c) => c.field == field,
+            orElse: () => stateManager.columns[0]);
+
+        final currentIndex = stateManager.columns.indexOf(col);
+
+        if (currentIndex != i) {
+          final targetCol = stateManager.columns[i];
+          stateManager.moveColumn(column: col, targetColumn: targetCol);
+        }
+      }
+      debugPrint("✅ Configuración de Usuarios restaurada correctamente");
+    } catch (e) {
+      debugPrint("Error restaurando grid de usuarios: $e");
+    }
+  }
+
+  // --- FIN MÉTODOS DE PERSISTENCIA ---
+
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<AdminCubit, AdminState>(
-      listener: (context, state) {
-        // Si en tu AdminState tienes errores o mensajes,
-        // puedes manejar aquí los SnackBars como antes.
-      },
+      listener: (context, state) {},
       builder: (context, state) {
         if (state.status == AdminStatus.loading) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        // Mapa id_ubicacion → nombre que viene de InventoryCubit
         final invState = context.watch<InventoryCubit>().state;
         final mapaUbicaciones = invState.ubicaciones;
 
@@ -206,7 +278,13 @@ class _UsersTabState extends State<UsersTab> {
                       state.users.firstWhere((u) => u.id == id);
                   _openDetailDialog(user);
                 },
-
+                onLoaded: (PlutoGridOnLoadedEvent event) {
+                  event.stateManager.setShowColumnFilter(true);
+                  _restoreGridState(event.stateManager);
+                  event.stateManager.addListener(() {
+                    _saveGridState(event.stateManager);
+                  });
+                },
                 configuration: const PlutoGridConfiguration(
                   columnSize: PlutoGridColumnSizeConfig(
                     autoSizeMode: PlutoAutoSizeMode.scale,

@@ -19,14 +19,40 @@ class EquipmentMasterTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: const InventoryGridScreen(), // Grid existente
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openCreateDialog(context),
-        label: const Text("Alta Equipo"),
-        icon: const Icon(Icons.add_box),
-        backgroundColor: Colors.orange,
-      ),
+    // Usamos Column para poner cabecera arriba y la tabla abajo
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              const Text(
+                'Gestión de Equipos',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              // Botón estilo "Gestión de usuarios"
+              ElevatedButton.icon(
+                onPressed: () => _openCreateDialog(context),
+                icon: const Icon(Icons.add_box),
+                label: const Text('Alta Equipo'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        // La tabla ocupa el resto del espacio
+        const Expanded(
+          child: InventoryGridScreen(), 
+        ),
+      ],
     );
   }
 }
