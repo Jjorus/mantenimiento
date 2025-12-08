@@ -13,7 +13,13 @@ import '../../admin/widgets/equipment_form_dialog.dart';
 import 'equipment_detail_dialog.dart';
 
 class InventoryGridScreen extends StatefulWidget {
-  const InventoryGridScreen({super.key});
+  // Nuevo parámetro para controlar si mostramos acciones de admin
+  final bool isAdminMode;
+
+  const InventoryGridScreen({
+    super.key,
+    this.isAdminMode = false, // Por defecto oculto (modo lectura)
+  });
 
   @override
   State<InventoryGridScreen> createState() => _InventoryGridScreenState();
@@ -90,51 +96,58 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
         enableFilterMenuItem: false,
         renderer: (_) => const Icon(Icons.history, color: Colors.blue),
       ),
-      PlutoColumn(
-        title: 'Acciones',
-        field: 'actions',
-        type: PlutoColumnType.text(),
-        width: 120,
-        enableSorting: false,
-        enableFilterMenuItem: false,
-        renderer: (ctx) {
-          final row = ctx.row;
-          final id = row.cells['id']!.value as int;
-
-          return Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              IconButton(
-                padding: EdgeInsets.zero,
-                iconSize: 18,
-                tooltip: 'Editar ficha',
-                icon: const Icon(Icons.edit),
-                onPressed: () {
-                  final state = context.read<InventoryCubit>().state;
-                  try {
-                    final equipo = state.equipos.firstWhere((e) => e.id == id);
-                    showDialog(
-                      context: context,
-                      builder: (_) => BlocProvider.value(
-                        value: context.read<InventoryCubit>(),
-                        child: EquipmentFormDialog(equipo: equipo),
-                      ),
-                    );
-                  } catch (_) {}
-                },
-              ),
-              IconButton(
-                padding: EdgeInsets.zero,
-                iconSize: 18,
-                tooltip: 'Eliminar equipo',
-                icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: () => _confirmDeleteEquipo(id),
-              ),
-            ],
-          );
-        },
-      ),
     ];
+
+    // SOLO añadimos la columna de acciones si estamos en modo Admin
+    if (widget.isAdminMode) {
+      columns.add(
+        PlutoColumn(
+          title: 'Acciones',
+          field: 'actions',
+          type: PlutoColumnType.text(),
+          width: 100,
+          minWidth: 90,
+          enableSorting: false,
+          enableFilterMenuItem: false,
+          renderer: (ctx) {
+            final row = ctx.row;
+            final id = row.cells['id']!.value as int;
+
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  padding: EdgeInsets.zero,
+                  iconSize: 18,
+                  tooltip: 'Editar ficha',
+                  icon: const Icon(Icons.edit),
+                  onPressed: () {
+                    final state = context.read<InventoryCubit>().state;
+                    try {
+                      final equipo = state.equipos.firstWhere((e) => e.id == id);
+                      showDialog(
+                        context: context,
+                        builder: (_) => BlocProvider.value(
+                          value: context.read<InventoryCubit>(),
+                          child: EquipmentFormDialog(equipo: equipo),
+                        ),
+                      );
+                    } catch (_) {}
+                  },
+                ),
+                IconButton(
+                  padding: EdgeInsets.zero,
+                  iconSize: 18,
+                  tooltip: 'Eliminar equipo',
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () => _confirmDeleteEquipo(id),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    }
   }
 
   void _openDetailDialog(EquipoModel equipo) {
@@ -143,7 +156,11 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
       barrierDismissible: false,
       builder: (_) => BlocProvider.value(
         value: context.read<InventoryCubit>(),
-        child: EquipmentDetailDialog(equipo: equipo),
+        // Pasamos el modo admin al diálogo de detalle
+        child: EquipmentDetailDialog(
+          equipo: equipo, 
+          isAdminMode: widget.isAdminMode
+        ),
       ),
     );
   }
@@ -221,18 +238,23 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
         ? (state.ubicaciones[ubicId] ?? 'ID $ubicId')
         : '-';
 
-    return PlutoRow(
-      cells: {
-        'id': PlutoCell(value: e.id),
-        'identidad': PlutoCell(value: e.identidad ?? '-'),
-        'serial': PlutoCell(value: e.numeroSerie ?? '-'),
-        'tipo': PlutoCell(value: e.tipo),
-        'estado': PlutoCell(value: e.estado),
-        'ubicacion': PlutoCell(value: ubicNombre),
-        'history': PlutoCell(value: 'ver'),
-         'actions': PlutoCell(value: 'actions'),
-      },
-    );
+    // Construimos las celdas base
+    final cells = {
+      'id': PlutoCell(value: e.id),
+      'identidad': PlutoCell(value: e.identidad ?? '-'),
+      'serial': PlutoCell(value: e.numeroSerie ?? '-'),
+      'tipo': PlutoCell(value: e.tipo),
+      'estado': PlutoCell(value: e.estado),
+      'ubicacion': PlutoCell(value: ubicNombre),
+      'history': PlutoCell(value: 'ver'),
+    };
+
+    // SOLO añadimos la celda de acciones si es admin
+    if (widget.isAdminMode) {
+      cells['actions'] = PlutoCell(value: 'actions');
+    }
+
+    return PlutoRow(cells: cells);
   }
 
   Future<void> _confirmDeleteEquipo(int id) async {
@@ -284,12 +306,11 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
     }
   }
 
-  // --- MÉTODOS DE PERSISTENCIA CORREGIDOS ---
+  // --- MÉTODOS DE PERSISTENCIA ---
 
   Future<void> _saveGridState(PlutoGridStateManager stateManager) async {
     if (_saveDebounce?.isActive ?? false) _saveDebounce!.cancel();
 
-    // Reducido a 300ms para que se guarde más rápido
     _saveDebounce = Timer(const Duration(milliseconds: 300), () async {
       try {
         final List<String> columnOrder = stateManager.columns.map((c) => c.field).toList();
@@ -319,16 +340,13 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
       final Map<String, dynamic> widths = data['widths'];
       final List<dynamic> order = data['order'];
 
-      // 1. Restaurar ANCHOS (Usando asignación DIRECTA)
       for (var col in stateManager.columns) {
         if (widths.containsKey(col.field)) {
           final double savedWidth = (widths[col.field] as num).toDouble();
-          // CORRECCIÓN: Asignamos directamente la propiedad width
           col.width = savedWidth;
         }
       }
 
-      // 2. Restaurar ORDEN (Usando parámetros nombrados)
       for (int i = 0; i < order.length; i++) {
         final field = order[i];
         final col = stateManager.columns.firstWhere(
@@ -340,7 +358,6 @@ class _InventoryGridScreenState extends State<InventoryGridScreen> {
         
         if (currentIndex != i) {
           final targetCol = stateManager.columns[i];
-          // CORRECCIÓN: Parámetros nombrados obligatorios
           stateManager.moveColumn(column: col, targetColumn: targetCol);
         }
       }

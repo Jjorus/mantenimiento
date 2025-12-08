@@ -47,6 +47,7 @@ class _UsersTabState extends State<UsersTab> {
         title: 'Nombre',
         field: 'nombre',
         type: PlutoColumnType.text(),
+        width: 160,
       ),
       PlutoColumn(
         title: 'Apellidos',
@@ -57,13 +58,13 @@ class _UsersTabState extends State<UsersTab> {
         title: 'Email',
         field: 'email',
         type: PlutoColumnType.text(),
-        width: 220,
+        width: 210,
       ),
       PlutoColumn(
         title: 'Ubicación',
         field: 'ubicacion',
         type: PlutoColumnType.text(),
-        width: 200,
+        width: 180,
       ),
       PlutoColumn(
         title: 'Rol',
@@ -80,7 +81,8 @@ class _UsersTabState extends State<UsersTab> {
         title: 'Acciones',
         field: 'actions',
         type: PlutoColumnType.text(),
-        width: 120,
+        width: 110,
+        minWidth: 100,
         enableSorting: false,
         enableFilterMenuItem: false,
         renderer: (ctx) {

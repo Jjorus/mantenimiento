@@ -318,6 +318,15 @@ def cerrar_reparacion(reparacion_id: int, payload: ReparacionCerrarIn, db: Sessi
         rep_db.fecha_fin = fecha_fin
         if hasattr(rep_db, "cerrada_por_id") and user: rep_db.cerrada_por_id = int(user["id"])
         db.add(rep_db)
+
+        # --- ACTUALIZACIÓN DE ESTADO DE EQUIPO ---
+        # Al cerrar la reparación, el equipo pasa automáticamente a OPERATIVO
+        equipo = db.get(Equipo, rep.equipo_id)
+        if equipo:
+            equipo.estado = "OPERATIVO"
+            db.add(equipo)
+        # -----------------------------------------
+
         db.commit()
         db.refresh(rep_db)
         return rep_db

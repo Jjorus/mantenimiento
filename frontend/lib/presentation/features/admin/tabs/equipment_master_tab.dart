@@ -50,7 +50,8 @@ class EquipmentMasterTab extends StatelessWidget {
         const Divider(height: 1),
         // La tabla ocupa el resto del espacio
         const Expanded(
-          child: InventoryGridScreen(), 
+          // AQUÍ SE ACTIVA EL MODO ADMIN
+          child: InventoryGridScreen(isAdminMode: true), 
         ),
       ],
     );
