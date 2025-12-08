@@ -89,6 +89,10 @@ class MaintenanceRepository {
         estado: estado,
       );
 
+  Future<void> cerrarReparacion(int id) => _remoteDs.closeReparacion(id);
+
+  Future<void> reabrirReparacion(int id) => _remoteDs.reopenReparacion(id);
+
   // --- FACTURAS DE REPARACIÓN ---
 
   Future<void> subirFactura(int reparacionId, File file) =>

@@ -153,6 +153,16 @@ class MaintenanceRemoteDataSource {
     );
   }
 
+  Future<void> closeReparacion(int id) async {
+    // Endpoint específico para cerrar
+    await _client.dio.post('/v1/reparaciones/$id/cerrar', data: {});
+  }
+
+  Future<void> reopenReparacion(int id) async {
+    // Endpoint específico para reabrir
+    await _client.dio.post('/v1/reparaciones/$id/reabrir', data: {});
+  }
+
   // ---------------------------------------------------------------------------
   // FACTURAS REPARACIÓN
   // ---------------------------------------------------------------------------

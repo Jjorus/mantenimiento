@@ -35,6 +35,15 @@ const List<String> _tiposEquipo = [
   'Otro',
 ];
 
+// 1. Definimos los estados posibles
+const List<String> _estadosEquipo = [
+  'OPERATIVO',
+  'MANTENIMIENTO',
+  'BAJA',
+  'CALIBRACION',
+  'RESERVA'
+];
+
 class EquipmentFormDialog extends StatefulWidget {
   final EquipoModel? equipo;
 
@@ -53,7 +62,10 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
   late TextEditingController _ubicacionCtrl;
   late TextEditingController _seccionCtrl;
   late TextEditingController _notasCtrl;
+  
   String? _tipoSeleccionado;
+  // 2. Variable para el estado seleccionado
+  late String _estadoSeleccionado;
 
   int? _selectedUbicacionId;
 
@@ -79,6 +91,9 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
     final tipo = equipo?.tipo;
     _tipoSeleccionado =
         (tipo != null && _tiposEquipo.contains(tipo)) ? tipo : null;
+
+    // 3. Inicializamos el estado (Por defecto OPERATIVO si es nuevo)
+    _estadoSeleccionado = equipo?.estado ?? 'OPERATIVO';
   }
 
   @override
@@ -110,7 +125,7 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
     final int? seccionId =
         secText.isEmpty ? null : int.tryParse(secText);
 
-    // NUEVO: lógica para ubicación con método mixto (desplegable + texto)
+    // Lógica para ubicación con método mixto (desplegable + texto)
     int? ubicacionId = _selectedUbicacionId;
 
     if (ubicacionId == null && ubiText.isNotEmpty) {
@@ -148,7 +163,6 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
     final cubit = context.read<InventoryCubit>();
 
     if (_isEditing) {
-      // OJO: mismos parámetros que ya tenías
       await cubit.actualizarEquipo(
         id: widget.equipo!.id,
         identidad: identidad,
@@ -158,9 +172,9 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
         ubicacionId: ubicacionId,
         seccionId: seccionId,
         notas: notas,
+        estado: _estadoSeleccionado, // 4. Enviamos el estado seleccionado
       );
     } else {
-      // OJO: mismos parámetros que ya tenías
       await cubit.crearEquipo(
         identidad: identidad,
         numeroSerie: numeroSerie,
@@ -169,6 +183,7 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
         ubicacionId: ubicacionId,
         seccionId: seccionId,
         notas: notas,
+        estado: _estadoSeleccionado, // 4. Enviamos el estado seleccionado
       );
     }
 
@@ -210,6 +225,7 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
                       v == null || v.trim().isEmpty ? "Requerido" : null,
                 ),
                 const SizedBox(height: 10),
+                
                 TextFormField(
                   controller: _snCtrl,
                   decoration: const InputDecoration(
@@ -217,6 +233,7 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
                   ),
                 ),
                 const SizedBox(height: 10),
+                
                 DropdownButtonFormField<String>(
                   initialValue: _tipoSeleccionado,
                   decoration:
@@ -236,6 +253,36 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
                       (v == null || v.isEmpty) ? "Requerido" : null,
                 ),
                 const SizedBox(height: 10),
+
+                // 5. NUEVO: Desplegable de ESTADO
+                DropdownButtonFormField<String>(
+                  value: _estadoSeleccionado,
+                  decoration: const InputDecoration(
+                    labelText: "Estado actual",
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  ),
+                  dropdownColor: Colors.white,
+                  items: _estadosEquipo.map((e) {
+                    Color color = Colors.black;
+                    if(e == 'OPERATIVO') color = Colors.green;
+                    if(e == 'MANTENIMIENTO') color = Colors.orange;
+                    if(e == 'BAJA') color = Colors.red;
+                    
+                    return DropdownMenuItem(
+                      value: e,
+                      child: Text(
+                        e, 
+                        style: TextStyle(color: color, fontWeight: FontWeight.bold)
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (v) {
+                    if (v != null) setState(() => _estadoSeleccionado = v);
+                  },
+                ),
+                const SizedBox(height: 10),
+
                 TextFormField(
                   controller: _nfcCtrl,
                   decoration: const InputDecoration(
@@ -287,6 +334,7 @@ class _EquipmentFormDialogState extends State<EquipmentFormDialog> {
                   keyboardType: TextInputType.number,
                 ),
                 const SizedBox(height: 10),
+                
                 TextFormField(
                   controller: _notasCtrl,
                   decoration:

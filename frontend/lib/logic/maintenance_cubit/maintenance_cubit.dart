@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/api/api_exception.dart';
 import '../../data/repositories/maintenance_repository.dart';
+import '../../data/models/reparacion_model.dart'; // Importante para el tipado
 import 'maintenance_state.dart';
 
 class MaintenanceCubit extends Cubit<MaintenanceState> {
@@ -154,13 +155,56 @@ class MaintenanceCubit extends Cubit<MaintenanceState> {
     String? descripcion,
     String? estado,
   }) async {
+    // 1. Buscamos la reparación actual para saber su estado previo
+    // Usamos cast<ReparacionModel?>() para evitar errores de tipo con firstWhere
+    final currentRep = state.reparaciones
+        .cast<ReparacionModel?>()
+        .firstWhere((r) => r?.id == id, orElse: () => null);
+
+    if (currentRep == null) {
+      emit(state.copyWith(
+          status: MaintenanceStatus.failure,
+          errorMessage: "Reparación no encontrada en memoria"));
+      return;
+    }
+
     try {
-      await _repository.actualizarReparacion(
-        id,
-        descripcion: descripcion,
-        estado: estado,
-      );
+      // 2. Lógica de derivación según el cambio de estado
+
+      // CASO A: Cerrar reparación (de cualquier estado a CERRADA)
+      // Usamos el endpoint específico para evitar error 422
+      if (estado == 'CERRADA' && currentRep.estado != 'CERRADA') {
+        await _repository.cerrarReparacion(id);
+      }
+      // CASO B: Reabrir reparación (estaba CERRADA y pasa a otro estado)
+      else if (currentRep.estado == 'CERRADA' &&
+          estado != null &&
+          estado != 'CERRADA') {
+        await _repository.reabrirReparacion(id);
+
+        // Nota: El backend al reabrir pone el estado en "ABIERTA".
+        // Si el usuario seleccionó "EN_PROGRESO", necesitamos una segunda llamada
+        // para actualizar ese estado específico.
+        if (estado == 'EN_PROGRESO') {
+          await _repository.actualizarReparacion(id, estado: 'EN_PROGRESO');
+        }
+      }
+      // CASO C: Actualización normal (texto, o cambio entre ABIERTA <-> EN_PROGRESO)
+      else {
+        // Solo llamamos si hay algo que actualizar
+        if (descripcion != null ||
+            (estado != null && estado != currentRep.estado)) {
+          await _repository.actualizarReparacion(
+            id,
+            descripcion: descripcion,
+            estado: estado,
+          );
+        }
+      }
+
+      // 3. Éxito y recarga
       emit(state.copyWith(successMessage: "Reparación actualizada"));
+      // Pequeña espera para asegurar que la DB ha procesado la transacción
       await Future.delayed(const Duration(milliseconds: 300));
       loadDashboardData(filtroEstado: _filtroEstado);
     } on ApiException catch (e) {

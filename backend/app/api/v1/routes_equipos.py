@@ -106,7 +106,7 @@ def crear_equipo(
     errors: List[Dict[str, Any]] = []
 
     identidad = _norm(payload.identidad)
-    identidad = identidad.lower() if identidad else None
+    #identidad = identidad.lower() if identidad else None
     nfc_tag = _norm(payload.nfc_tag)
     nfc_tag = nfc_tag.lower() if nfc_tag else None
 
@@ -129,8 +129,8 @@ def crear_equipo(
             })
 
     if identidad:
-        if db.exec(select(Equipo).where(func.lower(Equipo.identidad) == identidad)).first():
-            errors.append({"loc": ["body", "identidad"], "msg": "identidad ya existe", "type": "value_error.unique"})
+        if db.exec(select(Equipo).where(func.lower(Equipo.identidad) == identidad.lower())).first():
+             errors.append({"loc": ["body", "identidad"], "msg": "identidad ya existe", "type": "value_error.unique"})
     if nfc_tag:
         if db.exec(select(Equipo).where(func.lower(Equipo.nfc_tag) == nfc_tag)).first():
             errors.append({"loc": ["body", "nfc_tag"], "msg": "nfc_tag ya existe", "type": "value_error.unique"})
@@ -367,14 +367,14 @@ def actualizar_equipo(
             })
 
     identidad = _norm(payload.identidad) if payload.identidad is not None else None
-    identidad = identidad.lower() if identidad else None
+    #identidad = identidad.lower() if identidad else None
     nfc_tag = _norm(payload.nfc_tag) if payload.nfc_tag is not None else None
     nfc_tag = nfc_tag.lower() if nfc_tag else None
 
-    if identidad is not None and identidad != (obj.identidad.lower() if obj.identidad else None):
-        if db.exec(select(Equipo).where(func.lower(Equipo.identidad) == identidad)).first():
+    if identidad is not None and identidad.lower() != (obj.identidad.lower() if obj.identidad else None):
+        if db.exec(select(Equipo).where(func.lower(Equipo.identidad) == identidad.lower())).first():
             errors.append({"loc": ["body", "identidad"], "msg": "identidad ya existe", "type": "value_error.unique"})
-
+    
     if nfc_tag is not None and nfc_tag != (obj.nfc_tag.lower() if obj.nfc_tag else None):
         if db.exec(select(Equipo).where(func.lower(Equipo.nfc_tag) == nfc_tag)).first():
             errors.append({"loc": ["body", "nfc_tag"], "msg": "nfc_tag ya existe", "type": "value_error.unique"})

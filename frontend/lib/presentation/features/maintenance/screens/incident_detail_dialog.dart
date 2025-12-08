@@ -59,11 +59,7 @@ class _IncidentDetailDialogState extends State<IncidentDetailDialog> {
     if (iso == null || iso.isEmpty) return "-";
     try {
       final dt = DateTime.parse(iso).toLocal();
-      return "${dt.day.toString().padLeft(2, '0')}/"
-          "${dt.month.toString().padLeft(2, '0')}/"
-          "${dt.year} "
-          "${dt.hour.toString().padLeft(2, '0')}:"
-          "${dt.minute.toString().padLeft(2, '0')}";
+      return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
     } catch (_) {
       return iso;
     }
@@ -112,6 +108,49 @@ class _IncidentDetailDialogState extends State<IncidentDetailDialog> {
       }
     }
   }
+
+  // --- NUEVO: Método para abrir editor full screen ---
+  void _abrirEditorPantallaCompleta() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          appBar: AppBar(
+            title: const Text("Editar Descripción (Pantalla Completa)"),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.check),
+                onPressed: () {
+                  Navigator.pop(context); // Volver
+                },
+              )
+            ],
+          ),
+          body: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: TextField(
+              controller: _descController, // Usamos el mismo controlador
+              maxLines: null,
+              expands: true,
+              autofocus: true,
+              style: const TextStyle(fontSize: 16),
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                hintText: "Escribe aquí los detalles...",
+              ),
+            ),
+          ),
+        ),
+      ),
+    ).then((_) {
+      // Al volver, si el texto ha cambiado, activamos el modo edición para poder guardar
+      if (_descController.text != (widget.incidencia.descripcion ?? "")) {
+        setState(() {
+          _isEditing = true;
+        });
+      }
+    });
+  }
+  // --------------------------------------------------
 
   Future<void> _subirAdjunto() async {
     try {
@@ -305,18 +344,34 @@ class _IncidentDetailDialogState extends State<IncidentDetailDialog> {
                     const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 child: Row(
                   children: [
-                    // IZQUIERDA: DESCRIPCIÓN
+                    // IZQUIERDA: DESCRIPCIÓN (MODIFICADO)
                     Expanded(
                       flex: 2,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            "Descripción",
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleSmall
-                                ?.copyWith(fontWeight: FontWeight.bold),
+                          // Cabecera con botón fullscreen
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                "Descripción",
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleSmall
+                                    ?.copyWith(fontWeight: FontWeight.bold),
+                              ),
+                              // Botón para editar en pantalla completa
+                              IconButton(
+                                icon: const Icon(Icons.fullscreen),
+                                tooltip: "Editar a pantalla completa",
+                                onPressed: () {
+                                  // Habilitamos edición al entrar en modo pantalla completa
+                                  setState(() => _isEditing = true);
+                                  _abrirEditorPantallaCompleta();
+                                },
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 8),
                           Expanded(

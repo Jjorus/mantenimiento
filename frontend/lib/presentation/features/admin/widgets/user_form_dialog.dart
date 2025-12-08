@@ -252,8 +252,8 @@ class _UserFormDialogState extends State<UserFormDialog> {
                       child: Text("ADMIN"),
                     ),
                     DropdownMenuItem(
-                      value: "SUPERVISOR",
-                      child: Text("SUPERVISOR"),
+                      value: "MANTENIMIENTO",
+                      child: Text("MANTENIMIENTO"),
                     ),
                     DropdownMenuItem(
                       value: "OPERARIO",

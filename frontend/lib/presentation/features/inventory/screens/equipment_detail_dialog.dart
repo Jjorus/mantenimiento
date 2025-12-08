@@ -14,8 +14,13 @@ import '../../admin/widgets/equipment_form_dialog.dart';
 
 class EquipmentDetailDialog extends StatefulWidget {
   final EquipoModel equipo;
+  final bool isAdminMode; // Nuevo parámetro
 
-  const EquipmentDetailDialog({super.key, required this.equipo});
+  const EquipmentDetailDialog({
+    super.key, 
+    required this.equipo,
+    this.isAdminMode = false, // Por defecto false
+  });
 
   @override
   State<EquipmentDetailDialog> createState() => _EquipmentDetailDialogState();
@@ -277,21 +282,26 @@ class _EquipmentDetailDialogState extends State<EquipmentDetailDialog> {
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    showDialog(
-                      context: context,
-                      builder: (_) => BlocProvider.value(
-                        value: context.read<InventoryCubit>(),
-                        child: EquipmentFormDialog(equipo: widget.equipo),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.edit),
-                  label: const Text('Editar ficha'),
-                ),
+                
+                // CONDICIONAL PARA EL BOTÓN DE EDITAR
+                if (widget.isAdminMode) ...[
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      showDialog(
+                        context: context,
+                        builder: (_) => BlocProvider.value(
+                          value: context.read<InventoryCubit>(),
+                          child: EquipmentFormDialog(equipo: widget.equipo),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.edit),
+                    label: const Text('Editar ficha'),
+                  ),
+                ],
+
                 const SizedBox(width: 8),
                 IconButton(
                   icon: const Icon(Icons.close),
