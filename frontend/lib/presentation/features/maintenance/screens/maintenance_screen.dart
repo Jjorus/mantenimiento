@@ -7,6 +7,7 @@ import 'package:pluto_grid/pluto_grid.dart';
 
 import '../../../../logic/maintenance_cubit/maintenance_cubit.dart';
 import '../../../../logic/maintenance_cubit/maintenance_state.dart';
+import '../../../../logic/inventory_cubit/inventory_cubit.dart'; // Importante para identidades
 import '../../../../data/models/incidencia_model.dart';
 import '../../../../data/models/reparacion_model.dart';
 import 'repair_detail_dialog.dart';
@@ -26,6 +27,8 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
   void initState() {
     super.initState();
     _loadData();
+    // Cargamos inventario para tener los nombres de los equipos
+    context.read<InventoryCubit>().loadInventory();
   }
 
   void _loadData() {
@@ -41,6 +44,12 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Obtenemos mapa de equipos para traducir ID -> Identidad
+    final inventoryState = context.watch<InventoryCubit>().state;
+    final Map<int, String> equiposMap = {
+      for (var e in inventoryState.equipos) e.id: e.identidad ?? 'EQ-${e.id}'
+    };
+
     return DefaultTabController(
       length: 2,
       child: Scaffold(
@@ -71,22 +80,10 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
                     Theme.of(context).colorScheme.surfaceContainerHighest,
                 icon: const Icon(Icons.filter_list),
                 items: const [
-                  DropdownMenuItem(
-                    value: "TODAS",
-                    child: Text("Todas"),
-                  ),
-                  DropdownMenuItem(
-                    value: "PENDIENTES",
-                    child: Text("Abiertas"),
-                  ),
-                  DropdownMenuItem(
-                    value: "EN PROGRESO",
-                    child: Text("En Progreso"),
-                  ),
-                  DropdownMenuItem(
-                    value: "CERRADAS",
-                    child: Text("Cerradas"),
-                  ),
+                  DropdownMenuItem(value: "TODAS", child: Text("Todas")),
+                  DropdownMenuItem(value: "PENDIENTES", child: Text("Abiertas")),
+                  DropdownMenuItem(value: "EN PROGRESO", child: Text("En Progreso")),
+                  DropdownMenuItem(value: "CERRADAS", child: Text("Cerradas")),
                 ],
                 onChanged: (val) {
                   if (val != null) {
@@ -98,7 +95,10 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
             ),
             IconButton(
               icon: const Icon(Icons.refresh),
-              onPressed: _loadData,
+              onPressed: () {
+                _loadData();
+                context.read<InventoryCubit>().loadInventory();
+              },
             ),
           ],
         ),
@@ -135,10 +135,12 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
                   key: UniqueKey(),
                   incidencias: state.incidencias,
                   reparaciones: state.reparaciones,
+                  equiposMap: equiposMap,
                 ),
                 _ReparacionesGrid(
                   key: UniqueKey(),
                   reparaciones: state.reparaciones,
+                  equiposMap: equiposMap,
                 ),
               ],
             );
@@ -156,11 +158,13 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
 class _IncidenciasGrid extends StatelessWidget {
   final List<IncidenciaModel> incidencias;
   final List<ReparacionModel> reparaciones;
+  final Map<int, String> equiposMap;
 
   const _IncidenciasGrid({
     super.key,
     required this.incidencias,
     required this.reparaciones,
+    required this.equiposMap,
   });
 
   String _formatDateTime(String? iso) {
@@ -196,11 +200,12 @@ class _IncidenciasGrid extends StatelessWidget {
           width: 70,
           readOnly: true,
         ),
+        // Columna Equipo mostrando Identidad
         PlutoColumn(
           title: 'Equipo',
           field: 'equipo',
-          type: PlutoColumnType.number(),
-          width: 90,
+          type: PlutoColumnType.text(),
+          width: 150,
         ),
         PlutoColumn(
           title: 'Título',
@@ -268,7 +273,10 @@ class _IncidenciasGrid extends StatelessWidget {
           renderer: (ctx) {
             final estado = ctx.row.cells['estado']!.value.toString();
             final id = ctx.row.cells['id']!.value as int;
-            final equipoId = ctx.row.cells['equipo']!.value as int;
+            
+            // Buscamos la incidencia original para obtener el ID real del equipo (no el texto)
+            final incOriginal = incidencias.firstWhere((i) => i.id == id);
+            final equipoId = incOriginal.equipoId;
 
             if (estado == 'CERRADA') {
               return IconButton(
@@ -301,10 +309,14 @@ class _IncidenciasGrid extends StatelessWidget {
       rows: incidencias.map((inc) {
         final tieneRep =
             reparaciones.any((rep) => rep.incidenciaId == inc.id);
+        
+        // Obtenemos la identidad del equipo
+        final identidad = equiposMap[inc.equipoId] ?? 'ID ${inc.equipoId}';
+
         return PlutoRow(
           cells: {
             'id': PlutoCell(value: inc.id),
-            'equipo': PlutoCell(value: inc.equipoId),
+            'equipo': PlutoCell(value: identidad), // Mostramos identidad
             'titulo': PlutoCell(value: inc.titulo),
             'estado': PlutoCell(value: inc.estado),
             'has_repair': PlutoCell(value: tieneRep ? 'si' : 'no'),
@@ -338,12 +350,18 @@ class _IncidenciasGrid extends StatelessWidget {
 }
 
 // ============================================================================
-// GRID DE REPARACIONES
+// GRID DE REPARACIONES (CON BOTONES DE ACCIÓN)
 // ============================================================================
 
 class _ReparacionesGrid extends StatelessWidget {
   final List<ReparacionModel> reparaciones;
-  const _ReparacionesGrid({super.key, required this.reparaciones});
+  final Map<int, String> equiposMap;
+
+  const _ReparacionesGrid({
+    super.key,
+    required this.reparaciones,
+    required this.equiposMap,
+  });
 
   String _formatDateTime(String? iso) {
     if (iso == null || iso.isEmpty) return "-";
@@ -399,11 +417,12 @@ class _ReparacionesGrid extends StatelessWidget {
           width: 80,
           readOnly: true,
         ),
+        // Columna Equipo mostrando Identidad
         PlutoColumn(
           title: 'Equipo',
           field: 'equipo',
-          type: PlutoColumnType.number(),
-          width: 100,
+          type: PlutoColumnType.text(),
+          width: 150,
         ),
         PlutoColumn(
           title: 'Incidencia',
@@ -416,7 +435,7 @@ class _ReparacionesGrid extends StatelessWidget {
           field: 'titulo',
           type: PlutoColumnType.text(),
         ),
-        // Columna de estado: chip coloreado (igual que en incidencias)
+        // Columna de estado: chip coloreado
         PlutoColumn(
           title: 'Estado',
           field: 'estado',
@@ -464,7 +483,7 @@ class _ReparacionesGrid extends StatelessWidget {
           renderer: (ctx) =>
               const Icon(Icons.folder_open, color: Colors.blue),
         ),
-        // Columna de Acciones con desplegable para cambiar estado
+        // --- COLUMNA DE ACCIONES MEJORADA ---
         PlutoColumn(
           title: 'Acciones',
           field: 'actions',
@@ -473,73 +492,101 @@ class _ReparacionesGrid extends StatelessWidget {
           enableSorting: false,
           renderer: (ctx) {
             final raw = ctx.row.cells['estado']!.value;
-            final estadoActual =
-                (raw is String && raw.trim().isNotEmpty)
-                    ? raw
-                    : 'ABIERTA';
+            final estadoActual = (raw is String && raw.trim().isNotEmpty)
+                ? raw
+                : 'ABIERTA';
+            final id = ctx.row.cells['id']!.value as int;
 
             return Row(
+              mainAxisAlignment: MainAxisAlignment.start, // Alineado a la izquierda
               children: [
-                Expanded(
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: estadoActual,
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'ABIERTA',
-                          child: Text('ABIERTA'),
+                // 1. Botón de Menú (Desplegable convertido en botón)
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.settings, color: Colors.black54),
+                  tooltip: 'Cambiar estado',
+                  onSelected: (nuevoEstado) {
+                    if (nuevoEstado == estadoActual) return;
+                    
+                    // Llamada al Cubit (la lógica inteligente que implementamos antes)
+                    context.read<MaintenanceCubit>().actualizarReparacion(
+                      id,
+                      estado: nuevoEstado,
+                    );
+                    
+                    // Actualización visual inmediata de la celda
+                    ctx.row.cells['estado']!.value = nuevoEstado;
+                  },
+                  itemBuilder: (context) {
+                    return [
+                      const PopupMenuItem(
+                        value: 'ABIERTA',
+                        child: Row(
+                          children: [
+                            Icon(Icons.lock_open, color: Colors.red, size: 18),
+                            SizedBox(width: 8),
+                            Text('ABIERTA'),
+                          ],
                         ),
-                        DropdownMenuItem(
-                          value: 'EN_PROGRESO',
-                          child: Text('EN PROGRESO'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'EN_PROGRESO',
+                        child: Row(
+                          children: [
+                            Icon(Icons.handyman, color: Colors.orange, size: 18),
+                            SizedBox(width: 8),
+                            Text('EN PROGRESO'),
+                          ],
                         ),
-                        DropdownMenuItem(
-                          value: 'CERRADA',
-                          child: Text('CERRADA'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'CERRADA',
+                        child: Row(
+                          children: [
+                            Icon(Icons.check_circle, color: Colors.green, size: 18),
+                            SizedBox(width: 8),
+                            Text('CERRADA'),
+                          ],
                         ),
-                      ],
-                      onChanged: (nuevoEstado) {
-                        if (nuevoEstado == null ||
-                            nuevoEstado == estadoActual) {
-                          return;
-                        }
-                        final id =
-                            ctx.row.cells['id']!.value as int;
-
-                        // Actualizamos en backend
-                        context
-                            .read<MaintenanceCubit>()
-                            .actualizarReparacion(
-                              id,
-                              estado: nuevoEstado,
-                            );
-
-                        // Actualizamos también el valor de la celda
-                        ctx.row.cells['estado']!.value = nuevoEstado;
-                      },
-                    ),
-                  ),
+                      ),
+                    ];
+                  },
                 ),
+
+                // 2. Botón específico de "REABRIR" (Solo visible si está cerrada)
+                if (estadoActual == 'CERRADA') ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.replay, color: Colors.orange),
+                    tooltip: 'Reabrir Reparación',
+                    onPressed: () {
+                      // Acción rápida: Reabrir a estado ABIERTA
+                      context.read<MaintenanceCubit>().actualizarReparacion(
+                        id,
+                        estado: 'ABIERTA',
+                      );
+                      ctx.row.cells['estado']!.value = 'ABIERTA';
+                    },
+                  ),
+                ],
               ],
             );
           },
         ),
       ],
       rows: reparaciones.map((e) {
-        // e.estado es String no nulo; solo controlamos cadena vacía
-        final estado =
-            e.estado.trim().isEmpty ? 'ABIERTA' : e.estado;
+        final estado = e.estado.trim().isEmpty ? 'ABIERTA' : e.estado;
+        // Obtenemos la identidad del equipo
+        final identidad = equiposMap[e.equipoId] ?? 'ID ${e.equipoId}';
+
         return PlutoRow(
           cells: {
             'id': PlutoCell(value: e.id),
-            'equipo': PlutoCell(value: e.equipoId),
+            'equipo': PlutoCell(value: identidad), // Mostramos identidad
             'incidencia': PlutoCell(value: e.incidenciaId ?? 0),
             'titulo': PlutoCell(value: e.titulo),
             'estado': PlutoCell(value: estado),
-            'fecha_inicio':
-                PlutoCell(value: _formatDateTime(e.fechaInicio)),
-            'fecha_fin':
-                PlutoCell(value: _formatDateTime(e.fechaFin)),
+            'fecha_inicio': PlutoCell(value: _formatDateTime(e.fechaInicio)),
+            'fecha_fin': PlutoCell(value: _formatDateTime(e.fechaFin)),
             'coste': PlutoCell(value: e.coste ?? 0),
             'details': PlutoCell(value: 'abrir'),
             'actions': PlutoCell(value: ''),

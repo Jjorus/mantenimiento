@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../data/models/reparacion_model.dart';
 import '../../../../data/repositories/maintenance_repository.dart';
+import '../../../../logic/maintenance_cubit/maintenance_cubit.dart';
 import '../../../../core/api/api_exception.dart';
 import '../../../../core/utils/file_downloader.dart';
 import '../../../shared/widgets/files/universal_file_viewer.dart';
@@ -58,11 +59,7 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
     if (iso == null || iso.isEmpty) return "-";
     try {
       final dt = DateTime.parse(iso).toLocal();
-      return "${dt.day.toString().padLeft(2, '0')}/"
-          "${dt.month.toString().padLeft(2, '0')}/"
-          "${dt.year} "
-          "${dt.hour.toString().padLeft(2, '0')}:"
-          "${dt.minute.toString().padLeft(2, '0')}";
+      return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
     } catch (_) {
       return iso;
     }
@@ -82,18 +79,29 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
   }
 
   Future<void> _guardarDescripcion() async {
+    // Quitamos el foco para cerrar el teclado
+    FocusScope.of(context).unfocus();
+
     setState(() {
       _isSaving = true;
     });
+
     try {
-      // Aquí de momento no tocamos backend (mantengo el comportamiento
-      // que ya tenías). Solo cerramos edición y mostramos aviso local.
+      // LLAMADA REAL: Usamos el Cubit para actualizar la reparación en el backend
+      await context.read<MaintenanceCubit>().actualizarReparacion(
+            widget.reparacion.id,
+            descripcion: _descController.text,
+          );
+
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content:
-              Text("Descripción actualizada (no enviada todavía al servidor)"),
+          content: Text("Descripción actualizada correctamente"),
+          backgroundColor: Colors.green,
         ),
       );
+
       setState(() {
         _isEditing = false;
       });
@@ -122,14 +130,58 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
     }
   }
 
+  // --- NUEVO: Método para abrir editor full screen ---
+  void _abrirEditorPantallaCompleta() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          appBar: AppBar(
+            title: const Text("Editar Descripción (Pantalla Completa)"),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.check),
+                onPressed: () {
+                  Navigator.pop(context); // Volver
+                },
+              )
+            ],
+          ),
+          body: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: TextField(
+              controller: _descController, // Usamos el mismo controlador
+              maxLines: null,
+              expands: true,
+              autofocus: true,
+              style: const TextStyle(fontSize: 16),
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                hintText: "Escribe aquí los detalles...",
+              ),
+            ),
+          ),
+        ),
+      ),
+    ).then((_) {
+      // Al volver, si el texto ha cambiado, activamos el modo edición para poder guardar
+      if (_descController.text != (widget.reparacion.descripcion ?? "")) {
+        setState(() {
+          _isEditing = true;
+        });
+      }
+    });
+  }
+  // --------------------------------------------------
+
   Future<void> _subirAdjunto() async {
     try {
       final result = await FilePicker.platform.pickFiles();
       if (result == null || result.files.single.path == null) return;
 
       final file = File(result.files.single.path!);
+      
+      // Nota: Aquí se usa el repositorio directamente para subir el archivo.
       final repo = context.read<MaintenanceRepository>();
-
       await repo.subirFactura(widget.reparacion.id, file);
 
       if (!mounted) return;
@@ -309,18 +361,35 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
                     const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 child: Row(
                   children: [
-                    // IZQUIERDA: DESCRIPCIÓN
+                    // IZQUIERDA: DESCRIPCIÓN (MODIFICADO)
                     Expanded(
                       flex: 2,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            "Descripción de la reparación",
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleSmall
-                                ?.copyWith(fontWeight: FontWeight.bold),
+                          // Cabecera con botón fullscreen
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                "Descripción de la reparación",
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleSmall
+                                    ?.copyWith(fontWeight: FontWeight.bold),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.fullscreen),
+                                tooltip: "Editar a pantalla completa",
+                                onPressed: () {
+                                  // Habilitamos edición al entrar en modo pantalla completa
+                                  setState(() {
+                                    _isEditing = true;
+                                  });
+                                  _abrirEditorPantallaCompleta();
+                                },
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 8),
                           Expanded(
@@ -404,7 +473,7 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
                       ),
                     ),
                     const SizedBox(width: 24),
-                    // DERECHA: ADJUNTOS
+                    // DERECHA: ADJUNTOS (Sin cambios)
                     Expanded(
                       flex: 2,
                       child: Column(

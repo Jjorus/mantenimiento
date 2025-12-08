@@ -9,6 +9,7 @@ import '../../../../data/models/user_model.dart';
 import '../../../../data/repositories/admin_repository.dart';
 import '../../../../data/repositories/inventory_repository.dart';
 import '../../../../logic/inventory_cubit/inventory_cubit.dart';
+import '../../../../logic/admin_cubit/admin_cubit.dart';
 import '../../../../core/utils/file_downloader.dart';
 import '../../../shared/widgets/files/universal_file_viewer.dart';
 import 'user_form_dialog.dart';
@@ -55,11 +56,16 @@ class _UserDetailDialogState extends State<UserDetailDialog> {
       _isSavingNotes = true;
     });
     try {
+      // 1. Guardamos en backend
       await context
           .read<AdminRepository>()
           .guardarNotasUsuario(widget.user.id, _notesController.text);
 
       if (!mounted) return;
+
+      // 2. Actualizamos la lista global para que el cambio persista al reabrir
+      await context.read<AdminCubit>().loadUsers();
+
       setState(() {
         _isSavingNotes = false;
         _isEditingNotes = false;

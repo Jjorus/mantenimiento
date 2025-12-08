@@ -4,7 +4,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/api/dio_client.dart';
 import '../models/equipo_model.dart';
-import '../models/ubicacion_model.dart'; // <--- NUEVO
+import '../models/ubicacion_model.dart';
 
 class InventoryRemoteDataSource {
   final DioClient _client;
@@ -29,8 +29,7 @@ class InventoryRemoteDataSource {
         .toList();
   }
 
-  // NUEVO: listar ubicaciones para poder mostrar el nombre
-   
+  // listar ubicaciones para poder mostrar el nombre
   Future<List<UbicacionModel>> getUbicaciones() async {
     final response = await _client.dio.get(
       '/v1/ubicaciones',
@@ -47,7 +46,7 @@ class InventoryRemoteDataSource {
       // Caso simple: el backend devuelve [ {id, nombre, ...}, ... ]
       lista = data;
     } else if (data is Map<String, dynamic>) {
-      // Casos típicos de paginación: { "items": [...]} / { "results": [...] } / { "data": [...] }
+      // Casos típicos de paginación
       if (data['items'] is List) {
         lista = data['items'] as List;
       } else if (data['results'] is List) {
@@ -55,7 +54,6 @@ class InventoryRemoteDataSource {
       } else if (data['data'] is List) {
         lista = data['data'] as List;
       } else {
-        // Último recurso: si no sabemos dónde están, lanzamos un error descriptivo
         throw Exception(
           'Formato inesperado de /v1/ubicaciones: ${data.runtimeType}',
         );
@@ -72,12 +70,11 @@ class InventoryRemoteDataSource {
         .toList();
   }
 
-    
   // Crear ubicación (se usa desde formularios de usuario/equipo)
   Future<UbicacionModel> crearUbicacion({
     required String nombre,
     int? seccionId,
-    String tipo = 'OTRO', // Para usuarios usaremos 'TECNICO'
+    String tipo = 'OTRO',
     int? usuarioId,
   }) async {
     final data = <String, dynamic>{
@@ -206,21 +203,30 @@ class InventoryRemoteDataSource {
 
   // Adjuntos
   Future<void> uploadAdjuntoEquipo(int equipoId, File file) async {
-    final fileName = file.path.split('/').last;
+    // FIX: Usar Platform.pathSeparator es más seguro que '/'
+    final fileName = file.path.split(Platform.pathSeparator).last;
     final formData = FormData.fromMap({
       'file': await MultipartFile.fromFile(file.path, filename: fileName),
     });
     await _client.dio.post('/v1/equipos/$equipoId/adjuntos', data: formData);
   }
 
-  Future<List<Map<String, String>>> getAdjuntosEquipoURLs(int equipoId) async {
+  // FIX CRÍTICO: Devolver Map<String, dynamic> e incluir el 'id'
+  // El repositorio necesita el ID para poder borrar el archivo después.
+  Future<List<Map<String, dynamic>>> getAdjuntosEquipoURLs(int equipoId) async {
     final response = await _client.dio.get('/v1/equipos/$equipoId/adjuntos');
-    return (response.data as List).map<Map<String, String>>((e) {
-      final idAdjunto = e['id'];
-      final nombre = e['nombre_archivo']?.toString() ?? 'archivo';
+    
+    return (response.data as List).map<Map<String, dynamic>>((e) {
+      final map = e as Map<String, dynamic>;
+      final idAdjunto = map['id'];
+      final nombre = map['nombre_archivo']?.toString() ?? 'archivo';
+      
       return {
+        'id': idAdjunto, // Importante: pasamos el ID original (int)
         'url': '/v1/equipos/$equipoId/adjuntos/$idAdjunto',
         'fileName': nombre,
+        'nombre_archivo': nombre,
+        'tipo': map['content_type'] ?? '',
       };
     }).toList();
   }
@@ -242,8 +248,7 @@ class InventoryRemoteDataSource {
     await _client.dio.delete('/v1/equipos/$equipoId/adjuntos/$adjuntoId');
   }
 
-    Future<void> deleteEquipo(int id) async {
+  Future<void> deleteEquipo(int id) async {
     await _client.dio.delete('/v1/equipos/$id');
   }
-
 }

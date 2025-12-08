@@ -369,7 +369,7 @@ def eliminar_reparacion(reparacion_id: int, db: Session = Depends(get_db)):
 
 # ----------------- Subida / descarga de factura (REFACTORIZADO) -----------------
 @router.post(
-    "/{reparacion_id}/factura",
+    "/{reparacion_id}/facturas",
     response_model=Reparacion,
     response_model_exclude_none=True,
     dependencies=[Depends(require_role("MANTENIMIENTO", "ADMIN"))],

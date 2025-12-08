@@ -1,7 +1,7 @@
 import 'dart:io';
 import '../datasources/inventory_remote_ds.dart';
 import '../models/equipo_model.dart';
-import '../models/ubicacion_model.dart'; // <--- NUEVO
+import '../models/ubicacion_model.dart';
 
 class InventoryRepository {
   final InventoryRemoteDataSource _remoteDs;
@@ -19,7 +19,7 @@ class InventoryRepository {
   Future<List<UbicacionModel>> listarUbicaciones() =>
       _remoteDs.getUbicaciones();
 
-    // Crear ubicación (wrapper de datasource)
+  // Crear ubicación (wrapper de datasource)
   Future<UbicacionModel> crearUbicacion({
     required String nombre,
     int? seccionId,
@@ -33,7 +33,6 @@ class InventoryRepository {
       usuarioId: usuarioId,
     );
   }
-   
 
   // Crear equipo
   Future<void> crearEquipo({
@@ -58,30 +57,29 @@ class InventoryRepository {
       );
 
   // Actualizar equipo
- Future<void> actualizarEquipo({
-  required int id,
-  String? identidad,
-  String? numeroSerie,
-  String? tipo,
-  String? estado,
-  String? nfcTag,
-  int? seccionId,
-  int? ubicacionId,
-  String? notas,
-}) {
-  return _remoteDs.updateEquipo(
-    id,
-    identidad: identidad,
-    numeroSerie: numeroSerie,
-    tipo: tipo,
-    estado: estado,
-    nfcTag: nfcTag,
-    seccionId: seccionId,
-    ubicacionId: ubicacionId,
-    notas: notas,
-  );
-}
-
+  Future<void> actualizarEquipo({
+    required int id,
+    String? identidad,
+    String? numeroSerie,
+    String? tipo,
+    String? estado,
+    String? nfcTag,
+    int? seccionId,
+    int? ubicacionId,
+    String? notas,
+  }) {
+    return _remoteDs.updateEquipo(
+      id,
+      identidad: identidad,
+      numeroSerie: numeroSerie,
+      tipo: tipo,
+      estado: estado,
+      nfcTag: nfcTag,
+      seccionId: seccionId,
+      ubicacionId: ubicacionId,
+      notas: notas,
+    );
+  }
 
   // Actualizar solo notas
   Future<void> actualizarNotas(int id, String notas) =>
@@ -91,8 +89,20 @@ class InventoryRepository {
   Future<void> subirAdjuntoEquipo(int id, File file) =>
       _remoteDs.uploadAdjuntoEquipo(id, file);
 
-  Future<List<Map<String, String>>> listarAdjuntos(int id) =>
-      _remoteDs.getAdjuntosEquipoURLs(id);
+  // MEJORA: Convertimos explícitamente la respuesta dinámica a Map<String, String>
+  // Esto previene errores de tipo 'List<dynamic> is not subtype of List<Map<String, String>>'
+  Future<List<Map<String, String>>> listarAdjuntos(int id) async {
+    final rawList = await _remoteDs.getAdjuntosEquipoURLs(id);
+    
+    return rawList.map((e) {
+      return {
+        'url': e['url']?.toString() ?? '',
+        'fileName': e['nombre_archivo']?.toString() ?? 'archivo',
+        'id': e['id']?.toString() ?? '0',
+        'tipo': e['tipo']?.toString() ?? '',
+      };
+    }).toList();
+  }
 
   Future<File> descargarArchivo(String url, String fileName) =>
       _remoteDs.downloadFile(url, fileName);
@@ -101,5 +111,4 @@ class InventoryRepository {
       _remoteDs.deleteAdjuntoEquipo(equipoId, adjuntoId);
 
   Future<void> eliminarEquipo(int id) => _remoteDs.deleteEquipo(id);
-
 }
