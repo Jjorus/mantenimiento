@@ -117,7 +117,7 @@ def listar_secciones(
     else:  # nombre_asc
         stmt = stmt.order_by(Seccion.nombre.asc(), Seccion.id.asc())
 
-    total = db.exec(total_stmt).scalar_one()
+    total = db.exec(total_stmt).one()
     response.headers["X-Total-Count"] = str(total)
 
     stmt = stmt.limit(limit).offset(offset)

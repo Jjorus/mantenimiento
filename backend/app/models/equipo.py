@@ -11,6 +11,7 @@ from sqlalchemy import (
     CheckConstraint,
     Index,
     func,
+    Text, # <--- AÑADIDO
 )
 from pydantic import ConfigDict, field_validator
 
@@ -74,6 +75,13 @@ class Equipo(SQLModel, table=True):
         default="OPERATIVO",
         sa_column=Column(String(20), nullable=False),
         description="OPERATIVO | MANTENIMIENTO | BAJA | CALIBRACION | RESERVA",
+    )
+
+    # --- NUEVO CAMPO: NOTAS ---
+    notas: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+        description="Comentarios generales, historial manual o notas del equipo",
     )
 
     # --- Relaciones lógicas ---
@@ -179,6 +187,7 @@ class Equipo(SQLModel, table=True):
             "esta_operativo": self.esta_operativo,
             "creado_en": self.creado_en.isoformat() if self.creado_en else None,
             "actualizado_en": self.actualizado_en.isoformat() if self.actualizado_en else None,
+            "notas": self.notas, # Incluimos notas en el resumen
         }
 
     def puede_ser_eliminado(self) -> bool:

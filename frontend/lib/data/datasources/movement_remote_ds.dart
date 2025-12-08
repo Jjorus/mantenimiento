@@ -1,3 +1,4 @@
+// Ruta: frontend/lib/data/datasources/movement_remote_ds.dart
 import '../../core/api/dio_client.dart';
 import '../models/movimiento_model.dart';
 
@@ -28,5 +29,13 @@ class MovementRemoteDataSource {
       },
     );
     return MovimientoModel.fromJson(response.data);
+  }
+
+  // Obtener historial de un equipo
+  Future<List<MovimientoModel>> getHistorialEquipo(int equipoId) async {
+    final response = await _client.dio.get('/v1/movimientos/equipo/$equipoId');
+    return (response.data as List)
+        .map((e) => MovimientoModel.fromJson(e))
+        .toList();
   }
 }

@@ -1,4 +1,4 @@
-# app/models/usuario.py
+# backend/app/models/usuario.py
 from typing import Optional, TYPE_CHECKING
 from datetime import datetime, timezone
 
@@ -12,6 +12,7 @@ from sqlalchemy import (
     CheckConstraint,
     Index,
     func,
+    Text,
 )
 from sqlalchemy.dialects.postgresql import CITEXT  # requiere extensión citext
 from pydantic import ConfigDict
@@ -59,17 +60,29 @@ class Usuario(SQLModel, table=True):
     )
 
     # email opcional pero único si se informa (case-insensitive)
-    email: Optional[str] = Field(
+    email: str = Field(
         default=None,
-        sa_column=Column(CITEXT(), unique=True, nullable=True),
+        sa_column=Column(CITEXT(), unique=True, nullable=False),
         description="Email del usuario (opcional, único si existe)",
     )
 
-    # nombre visible para UI (no único)
-    display_name: Optional[str] = Field(
+    # --- NUEVOS CAMPOS (Sustituyen a display_name) ---
+    nombre: Optional[str] = Field(
         default=None,
-        sa_column=Column(String(120), nullable=True),
-        description="Nombre para mostrar",
+        sa_column=Column(String(100), nullable=True),
+        description="Nombre de pila",
+    )
+    apellidos: Optional[str] = Field(
+        default=None,
+        sa_column=Column(String(150), nullable=True),
+        description="Apellidos",
+    )
+
+     # --- Notas internas de usuario ---
+    notas: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+        description="Notas internas sobre el usuario (solo administración)",
     )
 
     # --- Seguridad / Estado ---
@@ -145,6 +158,17 @@ class Usuario(SQLModel, table=True):
         sa_relationship_kwargs={"uselist": False},
     )
 
+    @property
+    def ubicacion_id(self) -> Optional[int]:
+        """
+        Devuelve el id de la ubicación asociada, si existe.
+
+        Se expone en los esquemas de respuesta (UsuarioOut) gracias a
+        model_config / from_attributes.
+        """
+        return self.ubicacion_asociada.id if self.ubicacion_asociada else None
+
+
     # --- Utilidades (no guardan estado) ---
     def __repr__(self) -> str:
         return f"<Usuario {self.id} {self.username} role={self.role} active={self.active}>"
@@ -155,7 +179,8 @@ class Usuario(SQLModel, table=True):
             "id": self.id,
             "username": self.username,
             "email": self.email,
-            "display_name": self.display_name,
+            "nombre": self.nombre,       # Actualizado
+            "apellidos": self.apellidos, # Actualizado
             "role": self.role,
             "active": self.active,
             "mfa_enabled": self.mfa_enabled,

@@ -25,6 +25,8 @@ class EquipoModel {
   @JsonKey(name: 'creado_en')
   final String? creadoEn;
 
+  final String? notas;
+
   const EquipoModel({
     required this.id,
     this.identidad,
@@ -35,6 +37,7 @@ class EquipoModel {
     this.ubicacionId,
     this.seccionId,
     this.creadoEn,
+    this.notas,
   });
 
   factory EquipoModel.fromJson(Map<String, dynamic> json) => _$EquipoModelFromJson(json);

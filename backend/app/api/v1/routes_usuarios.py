@@ -1,14 +1,18 @@
 # backend/app/api/v1/routes_usuarios.py
-from typing import Optional, List, Literal, get_args
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
+from typing import Optional, List, Literal
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Query, UploadFile, File
 from pydantic import BaseModel, Field, EmailStr
+from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, DBAPIError
 
 from app.core.deps import get_db, current_user, require_role
 from app.core.security import hash_password
+from app.core.file_manager import FileManager
 from app.models.usuario import Usuario
+from app.models.ubicacion import Ubicacion
+from app.models.usuario_adjunto import UsuarioAdjunto
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
 
@@ -24,6 +28,12 @@ class UsuarioOut(BaseModel):
     email: EmailStr
     role: RoleLiteral
     active: bool
+    # Campos adicionales
+    nombre: Optional[str] = None
+    apellidos: Optional[str] = None
+    ubicacion_id: Optional[int] = None  # NUEVO
+    notas: Optional[str] = None  # NUEVO: notas internas
+
     class Config:
         from_attributes = True
 
@@ -34,16 +44,40 @@ class UsuarioCreateIn(BaseModel):
     password: str = Field(..., min_length=6)
     role: RoleLiteral = "OPERARIO"
     active: bool = True
+    # Nuevos campos opcionales al crear
+    nombre: Optional[str] = None
+    apellidos: Optional[str] = None
+    # Ubicación opcional asociada al usuario
+    ubicacion_id: Optional[int] = Field(
+        None,
+        gt=0,
+        description="Ubicación asociada al usuario (sólo tipo 'TECNICO')",
+    )
 
 
 class UsuarioUpdateIn(BaseModel):
     email: Optional[EmailStr] = None
     role: Optional[RoleLiteral] = None
     active: Optional[bool] = None
+    # Nuevos campos opcionales al editar
+    nombre: Optional[str] = None
+    apellidos: Optional[str] = None
+    # Permitir cambiar la ubicación desde administración
+    ubicacion_id: Optional[int] = Field(
+        None,
+        gt=0,
+        description="Nueva ubicación asociada al usuario (técnico)",
+    )
 
 
 class PasswordChangeIn(BaseModel):
     password: str = Field(..., min_length=6)
+
+class NotasIn(BaseModel):
+    notas: Optional[str] = Field(
+        None,
+        description="Notas internas del usuario",
+    )
 
 
 # ---------------------------
@@ -54,7 +88,7 @@ def _last_admin_guard(db: Session, exclude_user_id: Optional[int] = None) -> boo
     True si EXISTE al menos un ADMIN diferente de exclude_user_id.
     Úsalo antes de desactivar, bajar de rol o borrar a un admin.
     """
-    stmt = select(func.count()).select_from(Usuario).where(Usuario.role == "ADMIN", Usuario.active == True)  # noqa: E712
+    stmt = select(func.count()).select_from(Usuario).where(Usuario.role == "ADMIN", Usuario.active == True)
     if exclude_user_id is not None:
         stmt = stmt.where(Usuario.id != exclude_user_id)
     count = db.exec(stmt).one()
@@ -75,7 +109,7 @@ def me(user=Depends(current_user), db: Session = Depends(get_db)):
 @router.patch("/me", response_model=UsuarioOut, response_model_exclude_none=True, dependencies=[Depends(current_user)])
 def update_me(payload: UsuarioUpdateIn, user=Depends(current_user), db: Session = Depends(get_db)):
     """
-    Permite cambiar SOLO el email del propio usuario.
+    Permite al usuario cambiar sus propios datos (email, nombre, apellidos).
     (No permite role ni active aquí).
     """
     u = db.get(Usuario, int(user["id"]))
@@ -87,6 +121,12 @@ def update_me(payload: UsuarioUpdateIn, user=Depends(current_user), db: Session 
 
     if payload.email is not None:
         u.email = str(payload.email).strip()
+    
+    # Permitir al usuario actualizar su nombre/apellidos
+    if payload.nombre is not None:
+        u.nombre = payload.nombre.strip()
+    if payload.apellidos is not None:
+        u.apellidos = payload.apellidos.strip()
 
     try:
         db.add(u)
@@ -123,24 +163,71 @@ def change_my_password(payload: PasswordChangeIn, user=Depends(current_user), db
     dependencies=[Depends(require_role("ADMIN"))],
 )
 def create_user(payload: UsuarioCreateIn, db: Session = Depends(get_db)):
+    # Validación previa de la ubicación (si viene)
+    ubicacion_obj: Optional[Ubicacion] = None
+    if payload.ubicacion_id is not None:
+        ubicacion_obj = db.get(Ubicacion, payload.ubicacion_id)
+        if not ubicacion_obj:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Ubicación inexistente",
+            )
+        if ubicacion_obj.tipo != "TECNICO":
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Sólo se pueden asociar ubicaciones de tipo 'TECNICO' a usuarios",
+            )
+        if ubicacion_obj.usuario_id is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "La ubicación ya está asociada a otro usuario",
+            )
+
     u = Usuario(
         username=payload.username.strip(),
         email=str(payload.email).strip(),
         password_hash=hash_password(payload.password),
         role=payload.role,
         active=payload.active,
+        # Nuevos campos
+        nombre=payload.nombre.strip() if payload.nombre else None,
+        apellidos=payload.apellidos.strip() if payload.apellidos else None,
     )
+
+    # 1ª transacción: crear usuario
     try:
         db.add(u)
         db.commit()
         db.refresh(u)
-        return u
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "Usuario o email ya existen")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Username o email ya en uso",
+        )
     except DBAPIError:
         db.rollback()
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Error interno de base de datos")
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Error interno de base de datos",
+        )
+
+    # 2ª transacción: asociar ubicación (si procede)
+    if ubicacion_obj is not None:
+        try:
+            ubicacion_obj.usuario_id = u.id
+            db.add(ubicacion_obj)
+            db.commit()
+            db.refresh(u)
+        except DBAPIError:
+            db.rollback()
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "Error interno de base de datos al asociar la ubicación",
+            )
+
+    return u
+
 
 
 @router.get(
@@ -154,7 +241,7 @@ def list_users(
     db: Session = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    q: Optional[str] = Query(None, description="Busca en username/email (contiene)"),
+    q: Optional[str] = Query(None, description="Busca en username, email, nombre o apellidos (contiene)"),
     role: Optional[RoleLiteral] = Query(None),
     active: Optional[bool] = Query(None),
 ):
@@ -164,7 +251,13 @@ def list_users(
     conds = []
     if q:
         like = f"%{q.strip()}%"
-        conds.append(Usuario.username.ilike(like) | Usuario.email.ilike(like))
+        # Búsqueda ampliada a nombre y apellidos
+        conds.append(
+            Usuario.username.ilike(like) | 
+            Usuario.email.ilike(like) | 
+            Usuario.nombre.ilike(like) | 
+            Usuario.apellidos.ilike(like)
+        )
     if role:
         conds.append(Usuario.role == role)
     if active is not None:
@@ -213,14 +306,58 @@ def update_user(user_id: int, payload: UsuarioUpdateIn, db: Session = Depends(ge
         demote = payload.role is not None and payload.role != "ADMIN"
         deactivate = payload.active is not None and payload.active is False
         if (demote or deactivate) and not _last_admin_guard(db, exclude_user_id=user_id):
-            raise HTTPException(status.HTTP_409_CONFLICT, "No puedes dejar el sistema sin ningún ADMIN activo")
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "No puedes dejar el sistema sin ningún ADMIN activo",
+            )
 
+    # Validación previa de la nueva ubicación (si viene)
+    nueva_ubicacion: Optional[Ubicacion] = None
+    if payload.ubicacion_id is not None:
+        nueva_ubicacion = db.get(Ubicacion, payload.ubicacion_id)
+        if not nueva_ubicacion:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Ubicación inexistente",
+            )
+        if nueva_ubicacion.tipo != "TECNICO":
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Sólo se pueden asociar ubicaciones de tipo 'TECNICO' a usuarios",
+            )
+        if (
+            nueva_ubicacion.usuario_id is not None
+            and nueva_ubicacion.usuario_id != u.id
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "La ubicación ya está asociada a otro usuario",
+            )
+
+    # Campos básicos
     if payload.email is not None:
         u.email = str(payload.email).strip()
     if payload.role is not None:
         u.role = payload.role
     if payload.active is not None:
         u.active = payload.active
+
+    # Campos de perfil
+    if payload.nombre is not None:
+        u.nombre = payload.nombre.strip()
+    if payload.apellidos is not None:
+        u.apellidos = payload.apellidos.strip()
+
+    # Gestionar cambio de ubicación
+    if nueva_ubicacion is not None:
+        # Si tenía una ubicación distinta, la liberamos
+        if u.ubicacion_asociada and u.ubicacion_asociada.id != nueva_ubicacion.id:
+            antigua = u.ubicacion_asociada
+            antigua.usuario_id = None
+            db.add(antigua)
+
+        nueva_ubicacion.usuario_id = u.id
+        db.add(nueva_ubicacion)
 
     try:
         db.add(u)
@@ -232,7 +369,11 @@ def update_user(user_id: int, payload: UsuarioUpdateIn, db: Session = Depends(ge
         raise HTTPException(status.HTTP_409_CONFLICT, "Email ya en uso")
     except DBAPIError:
         db.rollback()
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Error interno de base de datos")
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Error interno de base de datos",
+        )
+
 
 
 @router.post(
@@ -271,3 +412,141 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     except DBAPIError:
         db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Error interno de base de datos")
+    
+# ---------------------------
+# Notas y adjuntos de usuario
+# ---------------------------
+
+@router.patch(
+    "/{user_id}/notas",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("ADMIN"))],
+)
+def actualizar_notas_usuario(
+    user_id: int,
+    payload: NotasIn,
+    db: Session = Depends(get_db),
+):
+    u = db.get(Usuario, user_id)
+    if not u:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado")
+
+    u.notas = (payload.notas or "").strip() or None
+    try:
+        db.add(u)
+        db.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except DBAPIError:
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Error interno de base de datos",
+        )
+
+
+@router.post(
+    "/{user_id}/adjuntos",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_role("ADMIN"))],
+)
+async def subir_adjunto_usuario(
+    user_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user=Depends(current_user),
+):
+    u = db.get(Usuario, user_id)
+    if not u:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado")
+
+    file_data = await FileManager.save_file(file, "usuarios", f"user_{u.id}")
+
+    adjunto = UsuarioAdjunto(
+        usuario_id=u.id,
+        nombre_archivo=file_data["nombre_archivo"],
+        ruta_relativa=file_data["ruta_relativa"],
+        content_type=file_data["content_type"],
+        tamano_bytes=file_data["tamano_bytes"],
+        subido_por_id=int(user["id"]) if user else None,
+    )
+
+    db.add(adjunto)
+    db.commit()
+    db.refresh(adjunto)
+    return adjunto
+
+
+@router.get(
+    "/{user_id}/adjuntos",
+    dependencies=[Depends(require_role("ADMIN"))],
+)
+def listar_adjuntos_usuario(
+    user_id: int,
+    db: Session = Depends(get_db),
+):
+    u = db.get(Usuario, user_id)
+    if not u:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado")
+
+    adjuntos = db.exec(
+        select(UsuarioAdjunto).where(UsuarioAdjunto.usuario_id == user_id)
+    ).all()
+
+    return [
+        {
+            "id": a.id,
+            "nombre_archivo": a.nombre_archivo,
+            "url": f"/api/v1/usuarios/{user_id}/adjuntos/{a.id}",
+            "tipo": a.content_type,
+            "tamano": a.tamano_bytes,
+        }
+        for a in adjuntos
+    ]
+
+
+@router.get(
+    "/{user_id}/adjuntos/{adjunto_id}",
+    response_class=FileResponse,
+    dependencies=[Depends(require_role("ADMIN"))],
+)
+def descargar_adjunto_usuario(
+    user_id: int,
+    adjunto_id: int,
+    db: Session = Depends(get_db),
+):
+    adj = db.get(UsuarioAdjunto, adjunto_id)
+    if not adj or adj.usuario_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Adjunto no encontrado")
+
+    path = FileManager.get_path(adj.ruta_relativa)
+    if not path.is_file():
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Archivo físico no encontrado",
+        )
+
+    return FileResponse(
+        path,
+        media_type=adj.content_type or "application/octet-stream",
+        filename=adj.nombre_archivo,
+    )
+
+
+@router.delete(
+    "/{user_id}/adjuntos/{adjunto_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("ADMIN"))],
+)
+def eliminar_adjunto_usuario(
+    user_id: int,
+    adjunto_id: int,
+    db: Session = Depends(get_db),
+):
+    adj = db.get(UsuarioAdjunto, adjunto_id)
+    if not adj or adj.usuario_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Adjunto no encontrado")
+
+    FileManager.delete_file(adj.ruta_relativa)
+    db.delete(adj)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -18,6 +18,7 @@ def ensure_admin(session: Session) -> Usuario:
     if not admin:
         admin = Usuario(
             username="admin",
+            email="admin@mantenimiento.com",
             password_hash=hash_password("admin123"),
             role="ADMIN",
             active=True,
@@ -39,6 +40,7 @@ def ensure_tecnico(session: Session) -> Usuario:
     if not tecnico:
         tecnico = Usuario(
             username="tecnico1",
+            email="tecnico@mantenimiento.com",
             password_hash=hash_password("tecnico123"),
             role="OPERARIO",
             active=True,

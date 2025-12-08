@@ -102,7 +102,14 @@ def setup_db_schema(wait_for_services):
     yield
 
     # Al terminar TODA la sesión de tests, limpiar
-    SQLModel.metadata.drop_all(engine)
+    from sqlalchemy import text as _text
+
+    with engine.connect() as connection:
+        # Eliminamos todo lo que cuelga de 'public'
+        connection.execute(_text("DROP SCHEMA IF EXISTS public CASCADE;"))
+        # Volvemos a crear el esquema para el siguiente run de tests
+        connection.execute(_text("CREATE SCHEMA public;"))
+        connection.commit()
 
 
 # --------------------------------------------------------------------
