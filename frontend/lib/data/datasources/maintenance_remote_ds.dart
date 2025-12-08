@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/api/dio_client.dart';
 import '../models/incidencia_model.dart';
 import '../models/reparacion_model.dart';
+import '../models/gasto_model.dart';
 
 class MaintenanceRemoteDataSource {
   final DioClient _client;
@@ -214,5 +215,30 @@ class MaintenanceRemoteDataSource {
     );
 
     return File(savePath);
+  }
+
+  // ---------------------------------------------------------------------------
+  // GASTOS DE REPARACIÓN (NUEVO)
+  // ---------------------------------------------------------------------------
+
+  Future<List<GastoModel>> getGastos(int reparacionId) async {
+    final response = await _client.dio.get('/v1/reparaciones/$reparacionId/gastos');
+    return (response.data as List).map((e) => GastoModel.fromJson(e)).toList();
+  }
+
+  Future<void> addGasto(int reparacionId, String descripcion, double importe, String tipo) async {
+    await _client.dio.post(
+      '/v1/reparaciones/$reparacionId/gastos',
+      data: {
+        'reparacion_id': reparacionId,
+        'descripcion': descripcion,
+        'importe': importe,
+        'tipo': tipo,
+      },
+    );
+  }
+
+  Future<void> deleteGasto(int reparacionId, int gastoId) async {
+    await _client.dio.delete('/v1/reparaciones/$reparacionId/gastos/$gastoId');
   }
 }

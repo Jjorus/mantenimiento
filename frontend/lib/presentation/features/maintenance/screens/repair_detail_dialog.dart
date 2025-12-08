@@ -11,6 +11,7 @@ import '../../../../logic/maintenance_cubit/maintenance_cubit.dart';
 import '../../../../core/api/api_exception.dart';
 import '../../../../core/utils/file_downloader.dart';
 import '../../../shared/widgets/files/universal_file_viewer.dart';
+import '../widgets/repair_costs_widget.dart'; // <--- Widget que gestiona los costes
 
 class RepairDetailDialog extends StatefulWidget {
   final ReparacionModel reparacion;
@@ -25,18 +26,22 @@ class RepairDetailDialog extends StatefulWidget {
 }
 
 class _RepairDetailDialogState extends State<RepairDetailDialog> {
+  // Variables para Adjuntos
   late Future<List<Map<String, dynamic>>> _filesFuture;
+  
+  // Variables para Descripción
   late TextEditingController _descController;
   final FocusNode _textFocusNode = FocusNode();
-
   bool _isEditing = false;
   bool _isSaving = false;
+
+  // NOTA: He eliminado las variables de costes (_gastosFuture, controllers, etc.)
+  // porque ahora esa lógica vive dentro de RepairCostsWidget.
 
   @override
   void initState() {
     super.initState();
-    _descController =
-        TextEditingController(text: widget.reparacion.descripcion ?? "");
+    _descController = TextEditingController(text: widget.reparacion.descripcion ?? "");
     _refreshFiles();
   }
 
@@ -47,6 +52,8 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
     super.dispose();
   }
 
+  // --- MÉTODOS DE DATOS ---
+
   void _refreshFiles() {
     setState(() {
       _filesFuture = context
@@ -55,152 +62,72 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
     });
   }
 
-  String _formatDateTime(String? iso) {
-    if (iso == null || iso.isEmpty) return "-";
-    try {
-      final dt = DateTime.parse(iso).toLocal();
-      return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
-    } catch (_) {
-      return iso;
-    }
-  }
-
-  Color _estadoColor(String estado) {
-    switch (estado) {
-      case 'ABIERTA':
-        return Colors.orange;
-      case 'EN_PROGRESO':
-        return Colors.blue;
-      case 'CERRADA':
-        return Colors.green;
-      default:
-        return Colors.grey;
-    }
-  }
+  // --- DESCRIPCIÓN ---
 
   Future<void> _guardarDescripcion() async {
-    // Quitamos el foco para cerrar el teclado
     FocusScope.of(context).unfocus();
-
-    setState(() {
-      _isSaving = true;
-    });
-
+    setState(() => _isSaving = true);
     try {
-      // LLAMADA REAL: Usamos el Cubit para actualizar la reparación en el backend
       await context.read<MaintenanceCubit>().actualizarReparacion(
             widget.reparacion.id,
             descripcion: _descController.text,
           );
-
       if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Descripción actualizada correctamente"),
-          backgroundColor: Colors.green,
-        ),
-      );
-
-      setState(() {
-        _isEditing = false;
-      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Descripción actualizada"), backgroundColor: Colors.green));
+      setState(() => _isEditing = false);
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.message),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message), backgroundColor: Colors.red));
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Error al guardar descripción"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error al guardar"), backgroundColor: Colors.red));
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  // --- NUEVO: Método para abrir editor full screen ---
   void _abrirEditorPantallaCompleta() {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => Scaffold(
           appBar: AppBar(
             title: const Text("Editar Descripción (Pantalla Completa)"),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.check),
-                onPressed: () {
-                  Navigator.pop(context); // Volver
-                },
-              )
-            ],
+            actions: [IconButton(icon: const Icon(Icons.check), onPressed: () => Navigator.pop(context))],
           ),
           body: Padding(
             padding: const EdgeInsets.all(16.0),
             child: TextField(
-              controller: _descController, // Usamos el mismo controlador
+              controller: _descController,
               maxLines: null,
               expands: true,
               autofocus: true,
               style: const TextStyle(fontSize: 16),
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                hintText: "Escribe aquí los detalles...",
-              ),
+              decoration: const InputDecoration(border: InputBorder.none, hintText: "Escribe aquí..."),
             ),
           ),
         ),
       ),
     ).then((_) {
-      // Al volver, si el texto ha cambiado, activamos el modo edición para poder guardar
       if (_descController.text != (widget.reparacion.descripcion ?? "")) {
-        setState(() {
-          _isEditing = true;
-        });
+        setState(() => _isEditing = true);
       }
     });
   }
-  // --------------------------------------------------
+
+  // --- ADJUNTOS ---
 
   Future<void> _subirAdjunto() async {
     try {
       final result = await FilePicker.platform.pickFiles();
       if (result == null || result.files.single.path == null) return;
-
       final file = File(result.files.single.path!);
-      
-      // Nota: Aquí se usa el repositorio directamente para subir el archivo.
-      final repo = context.read<MaintenanceRepository>();
-      await repo.subirFactura(widget.reparacion.id, file);
-
+      await context.read<MaintenanceRepository>().subirFactura(widget.reparacion.id, file);
       if (!mounted) return;
       _refreshFiles();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Adjunto subido correctamente"),
-          backgroundColor: Colors.green,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Adjunto subido"), backgroundColor: Colors.green));
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Error subiendo adjunto"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error subiendo adjunto"), backgroundColor: Colors.red));
     }
   }
 
@@ -209,89 +136,61 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("Eliminar adjunto"),
-        content: const Text(
-            "¿Seguro que deseas eliminar este adjunto? Esta acción no se puede deshacer."),
+        content: const Text("¿Seguro que deseas eliminar este archivo?"),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("Cancelar"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(
-              "Eliminar",
-              style: TextStyle(color: Colors.red),
-            ),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancelar")),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Eliminar", style: TextStyle(color: Colors.red))),
         ],
       ),
     );
-
     if (confirm != true) return;
-
     try {
-      final repo = context.read<MaintenanceRepository>();
-      await repo.eliminarFactura(widget.reparacion.id, adjuntoId);
-
+      await context.read<MaintenanceRepository>().eliminarFactura(widget.reparacion.id, adjuntoId);
       if (!mounted) return;
       _refreshFiles();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Adjunto eliminado"),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Adjunto eliminado")));
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Error eliminando adjunto"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error eliminando adjunto"), backgroundColor: Colors.red));
     }
   }
 
+  // Helpers de adjuntos (ver, descargar)
   Future<void> _verAdjunto(String url, String fileName) async {
-    try {
-      final repo = context.read<MaintenanceRepository>();
-      final file = await repo.descargarArchivo(url, fileName);
+     try {
+      final file = await context.read<MaintenanceRepository>().descargarArchivo(url, fileName);
       if (!mounted) return;
-
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => UniversalFileViewer(
-            filePath: file.path,
-            fileName: fileName,
-          ),
-        ),
-      );
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => UniversalFileViewer(filePath: file.path, fileName: fileName)));
     } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Error al abrir adjunto"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error al abrir"), backgroundColor: Colors.red));
     }
   }
-
   Future<void> _guardarAdjuntoComo(String url, String fileName) async {
-    try {
-      final repo = context.read<MaintenanceRepository>();
-      final file = await repo.descargarArchivo(url, fileName);
+     try {
+      final file = await context.read<MaintenanceRepository>().descargarArchivo(url, fileName);
       if (!mounted) return;
-
       await FileDownloader.saveFile(context, file, fileName);
     } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Error al guardar adjunto"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error al guardar"), backgroundColor: Colors.red));
+    }
+  }
+
+  // --- UI HELPERS ---
+  
+  String _formatDateTime(String? iso) {
+    if (iso == null || iso.isEmpty) return "-";
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      return "${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}";
+    } catch (_) { return iso; }
+  }
+
+  Color _estadoColor(String estado) {
+    switch (estado) {
+      case 'ABIERTA': return Colors.orange;
+      case 'EN_PROGRESO': return Colors.blue;
+      case 'CERRADA': return Colors.green;
+      default: return Colors.grey;
     }
   }
 
@@ -302,90 +201,61 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: SizedBox(
-        width: 900,
-        height: 600,
+        width: 950, 
+        height: 650,
         child: Column(
           children: [
             // HEADER
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               child: Row(
                 children: [
-                  const Icon(Icons.build, color: Colors.indigo),
-                  const SizedBox(width: 8),
+                  const Icon(Icons.build_circle_outlined, color: Colors.indigo, size: 28),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          "Reparación #${rep.id} · Equipo ${rep.equipoId}",
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        Text(
-                          rep.titulo,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyMedium
-                              ?.copyWith(color: Colors.grey[700]),
-                        ),
+                        Text("Reparación #${rep.id} · Equipo ${rep.equipoId}", style: Theme.of(context).textTheme.titleLarge),
+                        Text(rep.titulo, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[700])),
                         if (rep.incidenciaId != null)
-                          Text(
-                            "Incidencia asociada: #${rep.incidenciaId}",
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(color: Colors.grey[600]),
-                          ),
+                          Text("Incidencia origen: #${rep.incidenciaId}", style: const TextStyle(fontSize: 12, color: Colors.grey)),
                       ],
                     ),
                   ),
                   Chip(
-                    label: Text(
-                      rep.estado,
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    backgroundColor: _estadoColor(rep.estado),
+                    label: Text(rep.estado, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), 
+                    backgroundColor: _estadoColor(rep.estado)
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
-                  ),
+                  const SizedBox(width: 8),
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
                 ],
               ),
             ),
             const Divider(height: 1),
+            
+            // BODY
             Expanded(
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding: const EdgeInsets.all(20),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // IZQUIERDA: DESCRIPCIÓN (MODIFICADO)
+                    // --- COLUMNA IZQUIERDA: DESCRIPCIÓN ---
                     Expanded(
-                      flex: 2,
+                      flex: 5,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Cabecera con botón fullscreen
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(
-                                "Descripción de la reparación",
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleSmall
-                                    ?.copyWith(fontWeight: FontWeight.bold),
-                              ),
+                              Text("Informe técnico", style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
                               IconButton(
                                 icon: const Icon(Icons.fullscreen),
-                                tooltip: "Editar a pantalla completa",
+                                tooltip: "Pantalla completa",
                                 onPressed: () {
-                                  // Habilitamos edición al entrar en modo pantalla completa
-                                  setState(() {
-                                    _isEditing = true;
-                                  });
+                                  setState(() => _isEditing = true);
                                   _abrirEditorPantallaCompleta();
                                 },
                               ),
@@ -396,14 +266,8 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
                             child: Container(
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: _isEditing
-                                      ? Colors.indigo
-                                      : Colors.grey.shade300,
-                                ),
-                                color: _isEditing
-                                    ? Colors.white
-                                    : Colors.grey.shade50,
+                                border: Border.all(color: _isEditing ? Colors.indigo : Colors.grey.shade300),
+                                color: _isEditing ? Colors.white : Colors.grey.shade50,
                               ),
                               child: TextField(
                                 focusNode: _textFocusNode,
@@ -414,203 +278,84 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
                                 textAlignVertical: TextAlignVertical.top,
                                 decoration: const InputDecoration(
                                   border: InputBorder.none,
-                                  contentPadding: EdgeInsets.all(12),
-                                  hintText:
-                                      "Añade detalles de la reparación, trabajos realizados, piezas, etc.",
+                                  contentPadding: EdgeInsets.all(16),
+                                  hintText: "Detalla aquí el trabajo realizado, diagnóstico, etc...",
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 12),
                           Row(
                             children: [
-                              TextButton.icon(
-                                icon: Icon(
-                                  _isEditing
-                                      ? Icons.cancel_outlined
-                                      : Icons.edit_outlined,
-                                ),
-                                label: Text(
-                                  _isEditing
-                                      ? "Cancelar edición"
-                                      : "Editar",
-                                ),
+                              OutlinedButton.icon(
+                                icon: Icon(_isEditing ? Icons.cancel : Icons.edit),
+                                label: Text(_isEditing ? "Cancelar" : "Editar"),
                                 onPressed: () {
                                   setState(() {
-                                    if (_isEditing) {
-                                      _descController.text =
-                                          widget.reparacion
-                                                  .descripcion ??
-                                              "";
-                                    }
+                                    if (_isEditing) _descController.text = widget.reparacion.descripcion ?? "";
                                     _isEditing = !_isEditing;
                                   });
-                                  if (_isEditing) {
-                                    _textFocusNode.requestFocus();
-                                  }
+                                  if (_isEditing) _textFocusNode.requestFocus();
                                 },
                               ),
                               const SizedBox(width: 8),
                               if (_isEditing)
-                                ElevatedButton.icon(
+                                FilledButton.icon(
                                   icon: _isSaving
-                                      ? const SizedBox(
-                                          width: 14,
-                                          height: 14,
-                                          child:
-                                              CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
+                                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                                       : const Icon(Icons.save),
                                   label: const Text("Guardar"),
-                                  onPressed:
-                                      _isSaving ? null : _guardarDescripcion,
+                                  onPressed: _isSaving ? null : _guardarDescripcion,
                                 ),
                             ],
                           ),
                         ],
                       ),
                     ),
+                    
                     const SizedBox(width: 24),
-                    // DERECHA: ADJUNTOS (Sin cambios)
+                    
+                    // --- COLUMNA DERECHA: PESTAÑAS (ADJUNTOS / COSTES) ---
                     Expanded(
-                      flex: 2,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                "Adjuntos",
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleSmall
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                      flex: 4,
+                      child: DefaultTabController(
+                        length: 2,
+                        child: Column(
+                          children: [
+                            Container(
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: Colors.grey[200],
+                                borderRadius: BorderRadius.circular(8),
                               ),
-                              const Spacer(),
-                              IconButton(
-                                icon: const Icon(Icons.add),
-                                tooltip: "Subir adjunto",
-                                onPressed: _subirAdjunto,
+                              child: TabBar(
+                                labelColor: Colors.indigo,
+                                unselectedLabelColor: Colors.grey[600],
+                                indicatorSize: TabBarIndicatorSize.tab,
+                                indicator: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4)],
+                                ),
+                                tabs: const [
+                                  Tab(child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.attach_file, size: 16), SizedBox(width: 8), Text("Adjuntos")])),
+                                  Tab(child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.euro, size: 16), SizedBox(width: 8), Text("Costes")])),
+                                ],
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Expanded(
-                            child: FutureBuilder<
-                                List<Map<String, dynamic>>>(
-                              future: _filesFuture,
-                              builder: (context, snapshot) {
-                                if (snapshot.connectionState ==
-                                    ConnectionState.waiting) {
-                                  return const Center(
-                                    child:
-                                        CircularProgressIndicator(),
-                                  );
-                                }
-                                if (snapshot.hasError) {
-                                  return const Center(
-                                    child: Text(
-                                        "Error cargando adjuntos"),
-                                  );
-                                }
-                                final files = snapshot.data ?? [];
-                                if (files.isEmpty) {
-                                  return const Center(
-                                    child: Text("Sin adjuntos"),
-                                  );
-                                }
-                                return ListView.builder(
-                                  itemCount: files.length,
-                                  itemBuilder: (context, index) {
-                                    final f = files[index];
-                                    final idAdjunto =
-                                        f['id'] as int? ?? 0;
-                                    final nombre =
-                                        (f['nombre_archivo'] ??
-                                                'adjunto')
-                                            .toString();
-                                    final esPrincipal =
-                                        (f['es_principal'] as bool?) ??
-                                            false;
-                                    final fechaSubida =
-                                        f['fecha_subida'] as String?;
-                                    final url =
-                                        '/v1/reparaciones/${widget.reparacion.id}/facturas/$idAdjunto';
-
-                                    return ListTile(
-                                      leading: Icon(
-                                        esPrincipal
-                                            ? Icons.star
-                                            : Icons
-                                                .description_outlined,
-                                        color: esPrincipal
-                                            ? Colors.amber
-                                            : Colors.blueGrey,
-                                      ),
-                                      title: Text(nombre),
-                                      subtitle: fechaSubida != null
-                                          ? Text(
-                                              "Subido: ${_formatDateTime(fechaSubida)}",
-                                              style:
-                                                  const TextStyle(
-                                                fontSize: 11,
-                                                color:
-                                                    Colors.grey,
-                                              ),
-                                            )
-                                          : null,
-                                      trailing: Row(
-                                        mainAxisSize:
-                                            MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons
-                                                  .visibility_outlined,
-                                              color: Colors.blue,
-                                            ),
-                                            tooltip: "Ver",
-                                            onPressed: () =>
-                                                _verAdjunto(
-                                              url,
-                                              nombre,
-                                            ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.download,
-                                              color: Colors.green,
-                                            ),
-                                            tooltip: "Guardar como...",
-                                            onPressed: () =>
-                                                _guardarAdjuntoComo(
-                                              url,
-                                              nombre,
-                                            ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.delete,
-                                              color: Colors.red,
-                                            ),
-                                            tooltip: "Eliminar",
-                                            onPressed: () =>
-                                                _eliminarAdjunto(
-                                                    idAdjunto),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                );
-                              },
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 12),
+                            Expanded(
+                              child: TabBarView(
+                                children: [
+                                  // TAB 1: ADJUNTOS
+                                  _buildAdjuntosTab(),
+                                  // TAB 2: COSTES
+                                  _buildCostesTab(),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -621,5 +366,77 @@ class _RepairDetailDialogState extends State<RepairDetailDialog> {
         ),
       ),
     );
+  }
+
+  Widget _buildAdjuntosTab() {
+    return Column(
+      children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: _subirAdjunto,
+            icon: const Icon(Icons.upload_file),
+            label: const Text("Subir archivo"),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Expanded(
+          child: FutureBuilder<List<Map<String, dynamic>>>(
+            future: _filesFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+              if (snapshot.hasError) return const Center(child: Text("Error cargando archivos"));
+              final files = snapshot.data ?? [];
+              if (files.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.folder_open, size: 48, color: Colors.grey[300]),
+                      const SizedBox(height: 8),
+                      const Text("No hay adjuntos", style: TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                );
+              }
+              return ListView.separated(
+                itemCount: files.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final f = files[index];
+                  final id = f['id'] as int? ?? 0;
+                  final nombre = (f['nombre_archivo'] ?? 'adjunto').toString();
+                  final esPrincipal = (f['es_principal'] as bool?) ?? false;
+                  final url = '/v1/reparaciones/${widget.reparacion.id}/facturas/$id';
+                  final fechaSubida = f['fecha_subida'] as String?;
+
+                  return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                    leading: CircleAvatar(
+                      backgroundColor: esPrincipal ? Colors.amber[100] : Colors.blue[50],
+                      child: Icon(esPrincipal ? Icons.star : Icons.description, color: esPrincipal ? Colors.orange : Colors.blue, size: 20),
+                    ),
+                    title: Text(nombre, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
+                    subtitle: fechaSubida != null ? Text("Subido: ${_formatDateTime(fechaSubida)}", style: const TextStyle(fontSize: 11, color: Colors.grey)) : null,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(icon: const Icon(Icons.visibility, size: 18, color: Colors.blueGrey), onPressed: () => _verAdjunto(url, nombre)),
+                        IconButton(icon: const Icon(Icons.download, size: 18, color: Colors.green), onPressed: () => _guardarAdjuntoComo(url, nombre)),
+                        IconButton(icon: const Icon(Icons.delete, size: 18, color: Colors.red), onPressed: () => _eliminarAdjunto(id)),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCostesTab() {
+    return RepairCostsWidget(reparacionId: widget.reparacion.id);
   }
 }

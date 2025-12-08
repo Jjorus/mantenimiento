@@ -2,6 +2,7 @@ import 'dart:io';
 import '../datasources/maintenance_remote_ds.dart';
 import '../models/incidencia_model.dart';
 import '../models/reparacion_model.dart';
+import '../models/gasto_model.dart';
 
 class MaintenanceRepository {
   final MaintenanceRemoteDataSource _remoteDs;
@@ -108,4 +109,15 @@ class MaintenanceRepository {
 
   Future<File> descargarArchivo(String url, String fileName) =>
       _remoteDs.downloadFile(url, fileName);
+
+  // --- GASTOS ---
+
+  Future<List<GastoModel>> listarGastos(int reparacionId) =>
+      _remoteDs.getGastos(reparacionId);
+
+  Future<void> agregarGasto(int reparacionId, String desc, double importe, String tipo) =>
+      _remoteDs.addGasto(reparacionId, desc, importe, tipo);
+
+  Future<void> eliminarGasto(int reparacionId, int gastoId) =>
+      _remoteDs.deleteGasto(reparacionId, gastoId);
 }

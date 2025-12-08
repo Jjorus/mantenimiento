@@ -7,11 +7,12 @@ import 'package:pluto_grid/pluto_grid.dart';
 
 import '../../../../logic/maintenance_cubit/maintenance_cubit.dart';
 import '../../../../logic/maintenance_cubit/maintenance_state.dart';
-import '../../../../logic/inventory_cubit/inventory_cubit.dart'; // Importante para identidades
+import '../../../../logic/inventory_cubit/inventory_cubit.dart';
 import '../../../../data/models/incidencia_model.dart';
 import '../../../../data/models/reparacion_model.dart';
 import 'repair_detail_dialog.dart';
 import 'incident_detail_dialog.dart';
+import 'repair_costs_dialog.dart';
 
 class MaintenanceScreen extends StatefulWidget {
   const MaintenanceScreen({super.key});
@@ -200,7 +201,6 @@ class _IncidenciasGrid extends StatelessWidget {
           width: 70,
           readOnly: true,
         ),
-        // Columna Equipo mostrando Identidad
         PlutoColumn(
           title: 'Equipo',
           field: 'equipo',
@@ -274,7 +274,6 @@ class _IncidenciasGrid extends StatelessWidget {
             final estado = ctx.row.cells['estado']!.value.toString();
             final id = ctx.row.cells['id']!.value as int;
             
-            // Buscamos la incidencia original para obtener el ID real del equipo (no el texto)
             final incOriginal = incidencias.firstWhere((i) => i.id == id);
             final equipoId = incOriginal.equipoId;
 
@@ -310,13 +309,12 @@ class _IncidenciasGrid extends StatelessWidget {
         final tieneRep =
             reparaciones.any((rep) => rep.incidenciaId == inc.id);
         
-        // Obtenemos la identidad del equipo
         final identidad = equiposMap[inc.equipoId] ?? 'ID ${inc.equipoId}';
 
         return PlutoRow(
           cells: {
             'id': PlutoCell(value: inc.id),
-            'equipo': PlutoCell(value: identidad), // Mostramos identidad
+            'equipo': PlutoCell(value: identidad),
             'titulo': PlutoCell(value: inc.titulo),
             'estado': PlutoCell(value: inc.estado),
             'has_repair': PlutoCell(value: tieneRep ? 'si' : 'no'),
@@ -350,7 +348,7 @@ class _IncidenciasGrid extends StatelessWidget {
 }
 
 // ============================================================================
-// GRID DE REPARACIONES (CON BOTONES DE ACCIÓN)
+// GRID DE REPARACIONES
 // ============================================================================
 
 class _ReparacionesGrid extends StatelessWidget {
@@ -417,7 +415,6 @@ class _ReparacionesGrid extends StatelessWidget {
           width: 80,
           readOnly: true,
         ),
-        // Columna Equipo mostrando Identidad
         PlutoColumn(
           title: 'Equipo',
           field: 'equipo',
@@ -435,7 +432,6 @@ class _ReparacionesGrid extends StatelessWidget {
           field: 'titulo',
           type: PlutoColumnType.text(),
         ),
-        // Columna de estado: chip coloreado
         PlutoColumn(
           title: 'Estado',
           field: 'estado',
@@ -483,7 +479,6 @@ class _ReparacionesGrid extends StatelessWidget {
           renderer: (ctx) =>
               const Icon(Icons.folder_open, color: Colors.blue),
         ),
-        // --- COLUMNA DE ACCIONES MEJORADA ---
         PlutoColumn(
           title: 'Acciones',
           field: 'actions',
@@ -498,22 +493,17 @@ class _ReparacionesGrid extends StatelessWidget {
             final id = ctx.row.cells['id']!.value as int;
 
             return Row(
-              mainAxisAlignment: MainAxisAlignment.start, // Alineado a la izquierda
+              mainAxisAlignment: MainAxisAlignment.start,
               children: [
-                // 1. Botón de Menú (Desplegable convertido en botón)
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.settings, color: Colors.black54),
                   tooltip: 'Cambiar estado',
                   onSelected: (nuevoEstado) {
                     if (nuevoEstado == estadoActual) return;
-                    
-                    // Llamada al Cubit (la lógica inteligente que implementamos antes)
                     context.read<MaintenanceCubit>().actualizarReparacion(
                       id,
                       estado: nuevoEstado,
                     );
-                    
-                    // Actualización visual inmediata de la celda
                     ctx.row.cells['estado']!.value = nuevoEstado;
                   },
                   itemBuilder: (context) {
@@ -552,14 +542,31 @@ class _ReparacionesGrid extends StatelessWidget {
                   },
                 ),
 
-                // 2. Botón específico de "REABRIR" (Solo visible si está cerrada)
+                // Botón de COSTES (Nuevo)
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.euro_symbol, color: Colors.blueGrey),
+                  tooltip: 'Gestionar Costes',
+                  onPressed: () {
+                    final reparacion = reparaciones.firstWhere((r) => r.id == id);
+                    showDialog(
+                      context: context,
+                      builder: (_) => RepairCostsDialog(reparacion: reparacion),
+                    ).then((_) {
+                       if (context.mounted) {
+                         context.read<MaintenanceCubit>().loadDashboardData();
+                       }
+                    });
+                  },
+                ),
+
+                // Botón de Reabrir
                 if (estadoActual == 'CERRADA') ...[
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
                   IconButton(
                     icon: const Icon(Icons.replay, color: Colors.orange),
                     tooltip: 'Reabrir Reparación',
                     onPressed: () {
-                      // Acción rápida: Reabrir a estado ABIERTA
                       context.read<MaintenanceCubit>().actualizarReparacion(
                         id,
                         estado: 'ABIERTA',
@@ -575,19 +582,19 @@ class _ReparacionesGrid extends StatelessWidget {
       ],
       rows: reparaciones.map((e) {
         final estado = e.estado.trim().isEmpty ? 'ABIERTA' : e.estado;
-        // Obtenemos la identidad del equipo
         final identidad = equiposMap[e.equipoId] ?? 'ID ${e.equipoId}';
 
         return PlutoRow(
           cells: {
             'id': PlutoCell(value: e.id),
-            'equipo': PlutoCell(value: identidad), // Mostramos identidad
+            'equipo': PlutoCell(value: identidad),
             'incidencia': PlutoCell(value: e.incidenciaId ?? 0),
             'titulo': PlutoCell(value: e.titulo),
             'estado': PlutoCell(value: estado),
             'fecha_inicio': PlutoCell(value: _formatDateTime(e.fechaInicio)),
             'fecha_fin': PlutoCell(value: _formatDateTime(e.fechaFin)),
-            'coste': PlutoCell(value: e.coste ?? 0),
+            // CORRECCIÓN: Eliminado '?? 0' porque e.coste ya es double (no nulo)
+            'coste': PlutoCell(value: e.coste), 
             'details': PlutoCell(value: 'abrir'),
             'actions': PlutoCell(value: ''),
           },
